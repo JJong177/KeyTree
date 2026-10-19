@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+/* 自然有机风基础层（spec §6.5 token 摘要） */
+:root {
+  --paper: #faf6f1;
+  --ink: #292524; /* stone-800 */
+  --ink-soft: #57534e; /* stone-600 */
+  --line: #d6d3d1; /* stone-300 */
+  --sage: #8b9d77;
+  --tan: #d4a373;
+  --warn: #8b2332;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Segoe UI", -apple-system, sans-serif;
+}
+
+h1, h2, h3, .font-serif {
+  font-family: Georgia, "Times New Roman", serif;
+}
