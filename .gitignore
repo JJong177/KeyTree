@@ -1,0 +1,4 @@
+.workbuddy/
+node_modules/
+dist/
+target/
