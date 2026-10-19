@@ -17,12 +17,12 @@
 - 产物体积 < 10MB，冷启动 < 1s
 - 单人可维护的代码规模，开源发布
 
-### 非目标（明确不做）
+### 非目标（v1 明确不做）
 
 - SSH Agent、Secret Service、KeeShare、Passkeys、CLI、插件系统
 - 内置云同步引擎（不做自己的服务器和同步协议）
-- 移动端（iOS/Android）
-- macOS / Linux 适配（架构不排斥，但 v1 不投入、不测试、不承诺）
+- 移动端自研（iOS/Android）——移动场景先由生态现成 KDBX 客户端承接，自研列为远期候选（见 §14）
+- macOS / Linux 适配（架构不排斥，但 v1 不投入、不测试、不承诺；macOS 为远期候选，见 §14）
 
 ## 2. 背景与动机
 
@@ -107,7 +107,7 @@
 
 ### 永久不做
 
-SSH Agent、Secret Service、KeeShare、Passkeys、CLI、插件系统、移动端、自有云服务。
+SSH Agent、Secret Service、KeeShare、Passkeys、CLI、插件系统、自有云服务。（移动端自研已从"永久不做"调整为远期候选，见 §14）
 
 ## 6. 核心体验设计
 
@@ -189,6 +189,7 @@ SSH Agent、Secret Service、KeeShare、Passkeys、CLI、插件系统、移动�
 2. 快速面板默认快捷键 `Alt+Space` 与 PowerToys Run 冲突时的让位策略（检测冲突并提示改键）
 3. CSV 导出是否 v1 就给（有明文泄露风险 vs 用户迁移刚需）——倾向给，双确认
 4. 发布节奏：MVP 后的 winget 上架时机
+5. **代码托管与发布渠道：开发期纯本地（不开 GitHub 仓库），是否/何时公开由 Jong 后期自行决定**——M3 的"GitHub Releases + winget"仅为候选发布形态，不构成对外承诺
 
 ## 13. 里程碑草案
 
@@ -198,3 +199,19 @@ SSH Agent、Secret Service、KeeShare、Passkeys、CLI、插件系统、移动�
 | M1 核心 | 条目/分组/标签/回收站 CRUD、搜索索引、生成器、TOTP、三栏主界面+主题 | 全功能可日常自用 |
 | M2 快捷 | 快速面板、全局快捷键、Auto-Type、Hello 解锁、自动锁定、剪贴板清空 | "便捷"卖点成立 |
 | M3 发布 | watcher 同步、merge、导入导出、错误处理打磨、安全清单、安装包+签名 | v1 对外发布 |
+
+## 14. 平台扩展路径（远期，不进 v1 范围）
+
+**原则：先让生态替我们覆盖多端，再谈自研。** KDBX 是平台中性格式——数据格式锁死的是文件而不是客户端，这是选 KDBX 的最大长期红利：将来即使 KeyLite 停更，用户的库仍被整个生态接得住。
+
+| 阶段 | 平台 | 路径 | 成本 |
+|---|---|---|---|
+| v1 | Windows | KeyLite 本体 | 本设计范围 |
+| v1 发布即得 | iOS / Android | 不开发，用生态现成客户端：iOS KeePassium / Strongbox，Android KeePassDX——打开网盘里的同一个 .kdbx 直接读写 | 零开发；移动体验由这些 app 决定 |
+| 远期候选 A | macOS | Tauri 2 原生支持 macOS；系统层三处替换：Windows Hello→Touch ID（LocalAuthentication）、DPAPI→Keychain、Auto-Type→CGEvent | 中；壳层与前端全部复用 |
+| 远期候选 B | iOS / Android 自研 | Tauri 2 支持移动端，但真正的产品价值在系统级自动填充（iOS AutoFill Credential Provider / Android AutofillService），需双平台原生开发 | 大；独立立项 |
+| 顺带 | Linux | Tauri 免费获得，但同样不投入、不承诺 | — |
+
+**自研移动端触发条件**（满足其一才立项）：① 生态组合的体验成为 KeyLite 用户的主要抱怨；② 需要与快速面板/文件哲学一致的闭环体验；③ 有多人维护资源。
+
+**中国区注意**：iOS 客户端在国区 App Store 的上架情况以实际搜索为准（不在则用外区账号）；Android 端可经 F-Droid / GitHub Releases 安装；同步网盘建议坚果云（WebDAV）或 OneDrive。
