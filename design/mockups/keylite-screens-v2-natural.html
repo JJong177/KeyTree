@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KeyLite 视觉设计稿 v2 · 自然有机风</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: 'Segoe UI', -apple-system, sans-serif; }
+  .serif { font-family: Georgia, 'Times New Roman', serif; }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body class="bg-[#faf6f1] text-stone-800">
+
+<!-- ============ 顶部导航：屏幕索引 ============ -->
+<nav class="bg-[#faf6f1] border-b border-stone-200 sticky top-0 z-50 px-4 py-3">
+  <div class="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-2">
+    <span class="serif font-semibold text-xl md:text-2xl text-stone-800">KeyLite 视觉设计稿 v2 · 自然有机风</span>
+    <div class="flex gap-2 text-xs md:text-sm flex-wrap">
+      <a href="#screen-1" class="px-3 py-1 rounded-full border border-stone-200 bg-white hover:bg-stone-100 transition-colors duration-300">1 · 解锁</a>
+      <a href="#screen-2" class="px-3 py-1 rounded-full border border-stone-200 bg-white hover:bg-stone-100 transition-colors duration-300">2 · 主界面</a>
+      <a href="#screen-3" class="px-3 py-1 rounded-full border border-stone-200 bg-white hover:bg-stone-100 transition-colors duration-300">3 · 编辑</a>
+      <a href="#screen-4" class="px-3 py-1 rounded-full border border-stone-200 bg-white hover:bg-stone-100 transition-colors duration-300">4 · 快速面板</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ 屏 1：解锁页 ============ -->
+<section id="screen-1" class="bg-[#faf6f1] min-h-screen px-4 py-12">
+  <h2 class="serif text-2xl md:text-3xl font-semibold mb-8 pl-4">屏 1 · 解锁页</h2>
+
+  <div class="flex items-center justify-center min-h-[60vh]">
+    <!-- 解锁卡片 -->
+    <div class="relative bg-[#faf6f1] rounded-[2rem] border border-stone-200 p-8 w-full max-w-md">
+      <!-- 植物叶子 SVG logo -->
+      <div class="text-center mb-6">
+        <svg width="64" height="64" viewBox="0 0 64 64" class="mx-auto mb-4">
+          <path d="M32 8 C 20 8, 12 20, 12 32 C 12 44, 22 52, 32 52 C 42 52, 52 44, 52 32 C 52 20, 44 8, 32 8" fill="#8b9d77" opacity="0.3"/>
+          <path d="M32 12 L32 48" stroke="#5c4033" stroke-width="2" stroke-linecap="round"/>
+          <path d="M32 20 Q 24 18, 20 24 M32 28 Q 40 26, 44 32 M32 36 Q 24 34, 20 40" fill="none" stroke="#8b9d77" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="32" cy="52" r="3" fill="#d4a373"/>
+        </svg>
+        <h1 class="serif font-semibold text-3xl text-stone-800">KeyLite</h1>
+        <p class="text-sm text-stone-600 mt-1">打开你的密码库</p>
+      </div>
+
+      <!-- 库路径 -->
+      <div class="mb-5 px-5 py-2.5 bg-white rounded-full border border-stone-200 text-xs text-stone-600 flex items-center gap-2">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M1 3 L5 3 L7 5 L13 5 L13 12 L1 12 Z" fill="#d4a373" stroke="#5c4033" stroke-width="1"/></svg>
+        D:\密码库\personal.kdbx
+      </div>
+
+      <!-- 主密码 -->
+      <label class="block text-sm font-medium text-stone-700 mb-2">主密码</label>
+      <div class="relative mb-4">
+        <input type="password" placeholder="••••••••••••" class="w-full px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 placeholder:text-stone-400 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300 pr-14"/>
+        <button class="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-stone-100 flex items-center justify-center text-xs text-stone-700 hover:bg-stone-200 transition-colors duration-300">眼</button>
+      </div>
+
+      <!-- 密钥文件 -->
+      <details class="mb-6">
+        <summary class="text-xs text-stone-500 cursor-pointer p-1 hover:text-stone-700 transition">+ 使用密钥文件（第二因子）</summary>
+        <div class="mt-2 px-5 py-2 bg-white rounded-full border border-stone-200 text-xs text-stone-500">选择 .key 文件…</div>
+      </details>
+
+      <!-- 主按钮 -->
+      <button class="w-full px-6 py-3 rounded-full font-medium transition-colors duration-300 bg-stone-800 text-stone-50 hover:bg-stone-700 mb-3">
+        解锁
+      </button>
+
+      <!-- Hello 按钮 -->
+      <button class="w-full px-6 py-3 rounded-full font-medium transition-colors duration-300 bg-transparent text-stone-800 border border-stone-300 hover:bg-stone-100 mb-6 flex items-center justify-center gap-2">
+        <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="6" r="3" fill="none" stroke="#5c4033" stroke-width="1.5"/><path d="M2 14 Q 8 10, 14 14" fill="none" stroke="#5c4033" stroke-width="1.5"/></svg>
+        用 Windows Hello 快速解锁
+      </button>
+
+      <p class="text-center text-xs text-stone-500">
+        忘记主密码？库里数据 <span class="text-[#8b2332] font-medium">无法恢复</span>
+      </p>
+
+      <!-- 底部植物装饰 -->
+      <svg class="mx-auto mt-6 opacity-30" width="100" height="20" viewBox="0 0 100 20">
+        <path d="M5 10 Q 15 2, 25 10 Q 35 18, 45 10 Q 55 2, 65 10 Q 75 18, 85 10 Q 95 2, 95 10" fill="none" stroke="#8b9d77" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 2：主界面三栏 ============ -->
+<section id="screen-2" class="bg-[#faf6f1] min-h-screen px-4 py-12">
+  <h2 class="serif text-2xl md:text-3xl font-semibold mb-8 pl-4">屏 2 · 主界面（三栏）</h2>
+
+  <div class="bg-[#faf6f1] rounded-[2rem] border border-stone-200 overflow-hidden">
+    <!-- 顶部导航条 -->
+    <div class="flex items-center justify-between border-b border-stone-200 px-4 py-3 gap-2 flex-wrap bg-white">
+      <span class="serif font-semibold text-lg text-stone-800">KeyLite</span>
+      <div class="flex-1 max-w-md">
+        <input type="text" placeholder="搜索条目…" class="w-full px-5 py-2 bg-[#faf6f1] border border-stone-200 rounded-full text-sm text-stone-800 placeholder:text-stone-400 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300"/>
+      </div>
+      <div class="flex gap-2">
+        <button class="px-4 py-2 rounded-full font-medium transition-colors duration-300 bg-stone-800 text-stone-50 hover:bg-stone-700 text-sm">+ 新建</button>
+        <button class="px-4 py-2 rounded-full border border-stone-300 bg-white text-stone-800 hover:bg-stone-100 transition-colors duration-300 text-sm">⚙</button>
+      </div>
+    </div>
+
+    <!-- 三栏布局 -->
+    <div class="grid grid-cols-1 md:grid-cols-[180px_1fr_320px] min-h-[500px]">
+
+      <!-- 左栏：分组树 -->
+      <div class="border-r border-stone-200 p-3 bg-white">
+        <h3 class="serif font-semibold text-xs mb-2 text-stone-500 uppercase tracking-wide">分组</h3>
+        <ul class="space-y-1 text-sm">
+          <li class="flex items-center justify-between p-2 rounded-[1rem] border border-stone-300 bg-[#faf6f1] cursor-pointer">
+            <span class="font-medium">▼ 我的密码库</span>
+            <span class="text-xs bg-stone-800 text-stone-50 px-2 py-0.5 rounded-full">128</span>
+          </li>
+          <li class="pl-4 flex items-center justify-between p-2 rounded-[1rem] hover:bg-stone-100 cursor-pointer transition-colors duration-300">
+            <span>💼 工作</span><span class="text-xs text-stone-400">42</span>
+          </li>
+          <li class="pl-4 flex items-center justify-between p-2 rounded-[1rem] hover:bg-stone-100 cursor-pointer transition-colors duration-300">
+            <span>🏦 银行</span><span class="text-xs text-stone-400">12</span>
+          </li>
+          <li class="pl-4 flex items-center justify-between p-2 rounded-[1rem] hover:bg-stone-100 cursor-pointer transition-colors duration-300">
+            <span>💬 社交</span><span class="text-xs text-stone-400">23</span>
+          </li>
+          <li class="pl-4 flex items-center justify-between p-2 rounded-[1rem] hover:bg-stone-100 cursor-pointer transition-colors duration-300">
+            <span>🛒 购物</span><span class="text-xs text-stone-400">31</span>
+          </li>
+          <li class="pl-4 flex items-center justify-between p-2 rounded-[1rem] hover:bg-stone-100 cursor-pointer transition-colors duration-300">
+            <span>📦 订阅</span><span class="text-xs text-stone-400">20</span>
+          </li>
+          <li class="mt-3 flex items-center gap-2 p-2 text-stone-400 text-sm border-t border-stone-200 pt-3">
+            <span>🗑 回收站</span><span class="text-xs">3</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- 中栏：条目列表 -->
+      <div class="p-3">
+        <div class="flex items-center justify-between mb-3">
+          <span class="serif font-semibold text-sm text-stone-800">💼 工作 · 42 条</span>
+          <button class="border border-stone-200 px-3 py-1 rounded-full bg-white text-xs text-stone-600 hover:bg-stone-100 transition-colors duration-300">最近修改 ▾</button>
+        </div>
+
+        <ul class="space-y-2">
+          <!-- 选中条目 -->
+          <li class="flex items-center gap-3 p-3 rounded-[1rem] border-2 border-[#8b9d77] bg-[#faf6f1] cursor-pointer">
+            <div class="w-9 h-9 rounded-full border border-stone-300 bg-[#d4a373]/30 flex items-center justify-center font-semibold text-stone-800">G</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-medium text-stone-800">GitHub</span>
+                <span class="text-xs border border-[#8b2332]/40 text-[#8b2332] px-2 py-0.5 rounded-full bg-[#8b2332]/10">工作</span>
+              </div>
+              <div class="text-xs text-stone-500 truncate">jong@example.com</div>
+            </div>
+            <div class="text-xs text-stone-400">2 小时前</div>
+          </li>
+          <!-- 普通条目 -->
+          <li class="flex items-center gap-3 p-3 rounded-[1rem] border border-stone-200 bg-white hover:border-stone-300 cursor-pointer transition-colors duration-300">
+            <div class="w-9 h-9 rounded-full border border-stone-300 bg-[#8b9d77]/30 flex items-center justify-center font-semibold text-stone-800">G</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-medium text-stone-800">Google</span>
+                <span class="text-xs border border-[#8b2332]/40 text-[#8b2332] px-2 py-0.5 rounded-full bg-[#8b2332]/10">社交</span>
+                <span class="text-xs text-[#8b9d77]">⏱ TOTP</span>
+              </div>
+              <div class="text-xs text-stone-500 truncate">jong@gmail.com</div>
+            </div>
+            <div class="text-xs text-stone-400">昨天</div>
+          </li>
+          <li class="flex items-center gap-3 p-3 rounded-[1rem] border border-stone-200 bg-white hover:border-stone-300 cursor-pointer transition-colors duration-300">
+            <div class="w-9 h-9 rounded-full border border-stone-300 bg-[#d4a373]/30 flex items-center justify-center font-semibold text-stone-800">A</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-medium text-stone-800">AWS Console</span>
+                <span class="text-xs border border-[#8b2332]/40 text-[#8b2332] px-2 py-0.5 rounded-full bg-[#8b2332]/10">工作</span>
+              </div>
+              <div class="text-xs text-stone-500 truncate">jong-admin</div>
+            </div>
+            <div class="text-xs text-stone-400">3 天前</div>
+          </li>
+          <li class="flex items-center gap-3 p-3 rounded-[1rem] border border-stone-200 bg-white hover:border-stone-300 cursor-pointer transition-colors duration-300">
+            <div class="w-9 h-9 rounded-full border border-stone-300 bg-[#8b9d77]/30 flex items-center justify-center font-semibold text-stone-800">F</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-medium text-stone-800">Figma</span>
+                <span class="text-xs border border-[#8b2332]/40 text-[#8b2332] px-2 py-0.5 rounded-full bg-[#8b2332]/10">工作</span>
+              </div>
+              <div class="text-xs text-stone-500 truncate">jong@studio.com</div>
+            </div>
+            <div class="text-xs text-stone-400">1 周前</div>
+          </li>
+        </ul>
+      </div>
+
+      <!-- 右栏：详情 -->
+      <div class="border-l border-stone-200 p-3 bg-white">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="w-12 h-12 rounded-full border border-stone-300 bg-[#d4a373]/30 flex items-center justify-center font-semibold text-stone-800 text-xl">G</div>
+          <div class="flex-1">
+            <h3 class="serif font-semibold text-xl text-stone-800">GitHub</h3>
+            <div class="text-xs text-stone-500">github.com · 2 小时前修改</div>
+          </div>
+          <button class="text-[#d4a373] text-2xl leading-none">★</button>
+        </div>
+
+        <!-- 字段列表 -->
+        <div class="space-y-3 mb-4">
+          <!-- 用户名 -->
+          <div>
+            <div class="text-xs text-stone-500 mb-1">用户名</div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 p-2 rounded-full border border-stone-200 bg-[#faf6f1] text-sm text-stone-800">jong@example.com</div>
+              <button class="border border-stone-300 px-3 py-2 rounded-full bg-white text-stone-700 hover:bg-stone-100 transition-colors duration-300 text-xs">复制</button>
+            </div>
+          </div>
+          <!-- 密码 -->
+          <div>
+            <div class="text-xs text-stone-500 mb-1">密码</div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 p-2 rounded-full border border-stone-200 bg-[#faf6f1] text-sm font-semibold tracking-wider text-stone-800">••••••••••</div>
+              <button class="border border-stone-300 px-3 py-2 rounded-full bg-white text-stone-700 hover:bg-stone-100 transition-colors duration-300 text-xs">眼</button>
+              <button class="border border-stone-300 px-3 py-2 rounded-full bg-white text-stone-700 hover:bg-stone-100 transition-colors duration-300 text-xs">复制</button>
+            </div>
+          </div>
+          <!-- TOTP -->
+          <div class="p-3 rounded-[1rem] border border-stone-200 bg-[#8b9d77]/10">
+            <div class="text-xs text-stone-500 mb-1">两步验证 (TOTP)</div>
+            <div class="flex items-center gap-3">
+              <svg width="40" height="40" viewBox="0 0 40 40">
+                <circle cx="20" cy="20" r="16" fill="none" stroke="#8b9d77" stroke-width="1.5"/>
+                <circle cx="20" cy="20" r="16" fill="none" stroke="#8b2332" stroke-width="3" stroke-dasharray="75,100" stroke-linecap="round" transform="rotate(-90 20 20)"/>
+                <text x="20" y="24" text-anchor="middle" font-size="11" font-weight="bold" fill="#5c4033">18</text>
+              </svg>
+              <div class="font-bold text-2xl tracking-wider text-stone-800">482 913</div>
+              <button class="ml-auto border border-stone-300 px-3 py-2 rounded-full bg-white text-stone-700 hover:bg-stone-100 transition-colors duration-300 text-xs">复制</button>
+            </div>
+          </div>
+          <!-- URL -->
+          <div>
+            <div class="text-xs text-stone-500 mb-1">网址</div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 p-2 rounded-full border border-stone-200 bg-[#faf6f1] text-sm text-[#5c4033] truncate">https://github.com/login</div>
+              <button class="border border-stone-300 px-3 py-2 rounded-full bg-white text-stone-700 hover:bg-stone-100 transition-colors duration-300 text-xs">打开</button>
+            </div>
+          </div>
+          <!-- 备注 -->
+          <div>
+            <div class="text-xs text-stone-500 mb-1">备注</div>
+            <div class="p-2 rounded-[1rem] border border-stone-200 bg-[#faf6f1] text-sm text-stone-800">2FA 备份码存在 1Password 备份库里</div>
+          </div>
+        </div>
+
+        <!-- 标签 -->
+        <div class="mb-4">
+          <div class="text-xs text-stone-500 mb-1">标签</div>
+          <div class="flex gap-2 flex-wrap">
+            <span class="text-xs border border-[#8b2332]/40 text-[#8b2332] px-2 py-1 rounded-full bg-[#8b2332]/10">工作</span>
+            <span class="text-xs border border-[#8b9d77]/40 text-[#5c4033] px-2 py-1 rounded-full bg-[#8b9d77]/10">开发</span>
+          </div>
+        </div>
+
+        <!-- 时间 -->
+        <div class="text-xs text-stone-400 mb-4 border-t border-stone-200 pt-3">
+          创建：2024-03-15 · 修改：2 小时前 · 使用：12 次
+        </div>
+
+        <!-- 编辑按钮 -->
+        <button class="w-full px-6 py-3 rounded-full font-medium transition-colors duration-300 bg-stone-800 text-stone-50 hover:bg-stone-700">
+          编辑此条目
+        </button>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 3：条目编辑（抽屉） ============ -->
+<section id="screen-3" class="bg-[#faf6f1] min-h-screen px-4 py-12">
+  <h2 class="serif text-2xl md:text-3xl font-semibold mb-8 pl-4">屏 3 · 条目编辑（抽屉）</h2>
+
+  <!-- 模拟主界面被遮罩 + 抽屉覆盖 -->
+  <div class="relative bg-stone-800/20 min-h-[600px] p-4 md:p-8 rounded-[2rem] border border-stone-200">
+    <!-- 抽屉 -->
+    <div class="relative ml-auto bg-[#faf6f1] rounded-[2rem] border border-stone-200 w-full max-w-2xl p-6">
+
+      <!-- 标题区 -->
+      <div class="flex items-center justify-between mb-5 pb-4 border-b border-stone-200">
+        <h3 class="serif font-semibold text-xl md:text-2xl text-stone-800">编辑条目</h3>
+        <button class="w-9 h-9 rounded-full border border-stone-300 bg-white text-stone-700 hover:bg-stone-100 transition-colors duration-300 flex items-center justify-center">✕</button>
+      </div>
+
+      <!-- 表单 -->
+      <div class="space-y-4">
+        <!-- 标题 -->
+        <div>
+          <label class="block text-sm font-medium text-stone-700 mb-1">标题 <span class="text-[#8b2332]">*</span></label>
+          <input type="text" value="GitHub" class="w-full px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300"/>
+        </div>
+
+        <!-- 用户名 -->
+        <div>
+          <label class="block text-sm font-medium text-stone-700 mb-1">用户名</label>
+          <input type="text" value="jong@example.com" class="w-full px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300"/>
+        </div>
+
+        <!-- 密码 + 生成器 -->
+        <div>
+          <label class="block text-sm font-medium text-stone-700 mb-1">密码</label>
+          <div class="flex gap-2">
+            <input type="text" value="x9!Kp#mZ2vQ8" class="flex-1 px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300 tracking-wider font-semibold"/>
+            <button class="px-4 py-3 rounded-full border border-stone-300 bg-[#d4a373] text-stone-800 hover:bg-[#d4a373]/80 transition-colors duration-300 text-sm font-medium">🎲 生成</button>
+            <button class="px-4 py-3 rounded-full border border-stone-300 bg-white text-stone-700 hover:bg-stone-100 transition-colors duration-300 text-sm">眼</button>
+          </div>
+          <!-- 强度条 -->
+          <div class="mt-2 flex items-center gap-2">
+            <div class="flex-1 h-3 rounded-full border border-stone-200 bg-[#faf6f1] overflow-hidden">
+              <div class="h-full bg-[#8b9d77]" style="width: 85%"></div>
+            </div>
+            <span class="text-xs text-[#5c4033] font-medium">强 · 12 位</span>
+          </div>
+        </div>
+
+        <!-- URL -->
+        <div>
+          <label class="block text-sm font-medium text-stone-700 mb-1">网址</label>
+          <input type="text" value="https://github.com/login" class="w-full px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300"/>
+        </div>
+
+        <!-- 分组 + 标签 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-stone-700 mb-1">分组</label>
+            <select class="w-full px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300">
+              <option>💼 工作</option>
+              <option>🏦 银行</option>
+              <option>💬 社交</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-stone-700 mb-1">标签（逗号分隔）</label>
+            <input type="text" value="工作, 开发" class="w-full px-5 py-3 bg-white border border-stone-200 rounded-full text-stone-800 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300"/>
+          </div>
+        </div>
+
+        <!-- 备注 -->
+        <div>
+          <label class="block text-sm font-medium text-stone-700 mb-1">备注</label>
+          <textarea class="w-full px-5 py-3 bg-white border border-stone-200 rounded-[1rem] text-stone-800 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300 h-20 resize-none">2FA 备份码存在 1Password 备份库里</textarea>
+        </div>
+
+        <!-- 高级区折叠 -->
+        <details class="rounded-[1rem] border border-stone-200 p-3 bg-white">
+          <summary class="font-medium cursor-pointer text-sm text-stone-700">高级 ▼</summary>
+          <div class="mt-3 space-y-3">
+            <!-- TOTP -->
+            <div>
+              <label class="block text-xs text-stone-500 mb-1">TOTP 密钥（粘 otpauth:// 链接或扫码）</label>
+              <input type="text" placeholder="otpauth://totp/..." class="w-full px-5 py-2 bg-[#faf6f1] border border-stone-200 rounded-full text-xs text-stone-800 focus:border-stone-400 focus:ring-2 focus:ring-stone-200 transition-all duration-300"/>
+            </div>
+            <!-- 过期 -->
+            <div>
+              <label class="block text-xs text-stone-500 mb-1">过期时间（到期提醒改密码）</label>
+              <input type="date" class="w-full px-5 py-2 bg-[#faf6f1] border border-stone-200 rounded-full text-xs text-stone-800 focus:border-stone-400 transition-all duration-300"/>
+            </div>
+            <!-- Auto-Type 序列 -->
+            <div>
+              <label class="block text-xs text-stone-500 mb-1">Auto-Type 自定义序列</label>
+              <input type="text" value="{USERNAME}{TAB}{PASSWORD}{ENTER}" class="w-full px-5 py-2 bg-[#faf6f1] border border-stone-200 rounded-full text-xs text-stone-800 focus:border-stone-400 transition-all duration-300"/>
+              <p class="text-xs text-stone-400 mt-1">可用：{USERNAME} {PASSWORD} {TAB} {ENTER} {DELAY n}</p>
+            </div>
+            <!-- 自定义字段 -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <label class="text-xs text-stone-500">自定义字段</label>
+                <button class="text-xs px-3 py-1 rounded-full border border-stone-300 bg-[#d4a373] text-stone-800 hover:bg-[#d4a373]/80 transition-colors duration-300 font-medium">+ 添加</button>
+              </div>
+              <div class="space-y-2">
+                <div class="flex gap-2 items-center">
+                  <input type="text" value="备份码 1" class="w-32 px-3 py-1.5 rounded-full border border-stone-200 bg-white text-xs text-stone-800"/>
+                  <input type="text" value="12345678" class="flex-1 px-3 py-1.5 rounded-full border border-stone-200 bg-[#faf6f1] text-xs text-stone-800"/>
+                  <label class="text-xs flex items-center gap-1 text-stone-600">
+                    <input type="checkbox" checked class="accent-[#8b9d77]"/> 🔒
+                  </label>
+                  <button class="text-xs text-[#8b2332] border border-[#8b2332]/40 px-2 py-1 rounded-full bg-white hover:bg-[#8b2332]/10 transition-colors duration-300">✕</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- 底部按钮 -->
+        <div class="flex gap-3 pt-4 border-t border-stone-200">
+          <button class="flex-1 px-6 py-3 rounded-full font-medium transition-colors duration-300 bg-stone-800 text-stone-50 hover:bg-stone-700">
+            保存
+          </button>
+          <button class="px-6 py-3 rounded-full font-medium transition-colors duration-300 bg-transparent text-stone-800 border border-stone-300 hover:bg-stone-100">
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 4：快速访问面板 ============ -->
+<section id="screen-4" class="bg-stone-200/50 min-h-screen px-4 py-12">
+  <h2 class="serif text-2xl md:text-3xl font-semibold mb-8 pl-4 text-stone-800">屏 4 · 快速访问面板（spotlight）</h2>
+
+  <!-- 模拟桌面 -->
+  <div class="relative bg-[#faf6f1] min-h-[500px] p-4 md:p-8 rounded-[2rem] border border-stone-200 overflow-hidden">
+    <!-- 桌面植物装饰 -->
+    <svg class="absolute top-4 right-8 opacity-20" width="80" height="80" viewBox="0 0 80 80">
+      <path d="M40 10 Q 20 20, 20 40 Q 20 60, 40 70 Q 60 60, 60 40 Q 60 20, 40 10" fill="#8b9d77" opacity="0.5"/>
+      <path d="M40 15 L40 65" stroke="#5c4033" stroke-width="1.5"/>
+      <path d="M40 25 Q 30 23, 25 28 M40 35 Q 50 33, 55 38 M40 45 Q 30 43, 25 48" fill="none" stroke="#8b9d77" stroke-width="1.5"/>
+    </svg>
+
+    <!-- spotlight 面板 -->
+    <div class="relative mx-auto bg-[#faf6f1] rounded-[2rem] border border-stone-300 w-full max-w-xl">
+
+      <!-- 搜索框 -->
+      <div class="flex items-center gap-3 p-4 border-b border-stone-200">
+        <svg width="20" height="20" viewBox="0 0 20 20">
+          <circle cx="8" cy="8" r="6" fill="#8b9d77" opacity="0.3" stroke="#5c4033" stroke-width="1.5"/>
+          <path d="M13 13 L18 18" stroke="#5c4033" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <input type="text" value="git" class="flex-1 bg-transparent border-0 focus:outline-none text-lg font-semibold text-stone-800" autofocus/>
+        <span class="text-xs border border-stone-200 px-2 py-1 rounded-full bg-white text-stone-500">Esc</span>
+      </div>
+
+      <!-- 结果列表 -->
+      <ul class="p-2">
+        <!-- 选中：GitHub -->
+        <li class="flex items-center gap-3 p-3 rounded-[1rem] border-2 border-[#8b9d77] bg-[#8b9d77]/10 cursor-pointer">
+          <div class="w-9 h-9 rounded-full border border-stone-300 bg-white flex items-center justify-center font-semibold text-stone-800">G</div>
+          <div class="flex-1">
+            <div class="font-medium text-stone-800">GitHub</div>
+            <div class="text-xs text-stone-500">jong@example.com</div>
+          </div>
+          <div class="text-xs border border-stone-200 px-2 py-0.5 rounded-full bg-white text-stone-500">最近</div>
+        </li>
+        <!-- TOTP 条目 -->
+        <li class="flex items-center gap-3 p-3 rounded-[1rem] hover:bg-stone-100 cursor-pointer transition-colors duration-300">
+          <div class="w-9 h-9 rounded-full border border-stone-300 bg-[#8b9d77]/30 flex items-center justify-center font-semibold text-stone-800">G</div>
+          <div class="flex-1">
+            <div class="font-medium text-stone-800">Google</div>
+            <div class="text-xs text-stone-500">jong@gmail.com · 有 TOTP</div>
+          </div>
+          <svg width="28" height="28" viewBox="0 0 28 28">
+            <circle cx="14" cy="14" r="11" fill="none" stroke="#8b9d77" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="11" fill="none" stroke="#8b2332" stroke-width="2.5" stroke-dasharray="50,100" stroke-linecap="round" transform="rotate(-90 14 14)"/>
+          </svg>
+          <span class="font-bold tracking-wider text-sm text-stone-800">482 913</span>
+        </li>
+        <li class="flex items-center gap-3 p-3 rounded-[1rem] hover:bg-stone-100 cursor-pointer transition-colors duration-300">
+          <div class="w-9 h-9 rounded-full border border-stone-300 bg-[#d4a373]/30 flex items-center justify-center font-semibold text-stone-800">G</div>
+          <div class="flex-1">
+            <div class="font-medium text-stone-800">GitLab</div>
+            <div class="text-xs text-stone-500">jong@example.com</div>
+          </div>
+        </li>
+        <li class="flex items-center gap-3 p-3 rounded-[1rem] hover:bg-stone-100 cursor-pointer transition-colors duration-300">
+          <div class="w-9 h-9 rounded-full border border-stone-300 bg-[#8b9d77]/30 flex items-center justify-center font-semibold text-stone-800">G</div>
+          <div class="flex-1">
+            <div class="font-medium text-stone-800">Gitee</div>
+            <div class="text-xs text-stone-500">jong@example.com</div>
+          </div>
+        </li>
+      </ul>
+
+      <!-- 底部快捷键提示 -->
+      <div class="flex items-center justify-between p-3 border-t border-stone-200 text-xs text-stone-500 flex-wrap gap-2">
+        <div class="flex gap-3 flex-wrap">
+          <span><kbd class="border border-stone-200 px-1.5 py-0.5 rounded-full bg-white">Enter</kbd> 复制密码</span>
+          <span><kbd class="border border-stone-200 px-1.5 py-0.5 rounded-full bg-white">Tab</kbd> 更多动作</span>
+          <span><kbd class="border border-stone-200 px-1.5 py-0.5 rounded-full bg-white">↑↓</kbd> 选择</span>
+        </div>
+        <span class="text-[#8b2332] font-medium">⏱ 复制后 30s 自动清空剪贴板</span>
+      </div>
+    </div>
+
+    <!-- 装饰：手绘箭头 -->
+    <svg class="absolute top-1/3 left-2 opacity-30 hidden md:block" width="100" height="50" viewBox="0 0 100 50">
+      <path d="M5 25 Q 30 5, 75 25" fill="none" stroke="#8b9d77" stroke-width="2" stroke-linecap="round"/>
+      <path d="M70 20 L 75 25 L 70 30" fill="none" stroke="#8b9d77" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="8" y="45" font-size="10" fill="#8b9d77" font-weight="bold">Alt+Space</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ============ 页脚 ============ -->
+<footer class="bg-white border-t border-stone-200 py-8 px-4 mt-12">
+  <div class="max-w-7xl mx-auto text-center text-xs text-stone-500 space-y-1">
+    <div class="serif font-semibold text-sm text-stone-800">KeyLite 视觉设计稿 v2 · 自然有机风 (Natural Organic)</div>
+    <div>大地色系 · 米色背景 #faf6f1 · 衬线标题 · rounded-full 按钮 · rounded-[2rem] 卡片 · border-stone-200</div>
+    <div>禁止项零出现：无冷色 / 无纯黑 / 无尖锐圆角 / 无重阴影 / 无渐变</div>
+  </div>
+</footer>
+
+</body>
+</html>
