@@ -41,12 +41,12 @@
 |---|---|---|---|
 | 应用壳 | **Tauri 2** | 产物 3-10MB（WebView2 为 Win10/11 自带），"轻"的卖点由框架做实；全局快捷键/托盘/自启/通知/窗口防截屏全是官方插件 | Electron（100MB+，与产品叙事矛盾） |
 | 前端框架 | **Vue 3 + TypeScript** | 按作者手感定 | React、Svelte 5 |
-| UI 组件库 | **Naive UI + Tailwind CSS** | Vue 3 原生、组件全（树/表格/表单/弹窗/命令面板场景全覆盖）、主题系统强（明暗双主题+品牌色定制）、中文文档 | Element Plus、shadcn-vue |
+| UI 组件库 | **Radix-Vue + Tailwind CSS + 自写手绘外壳** | 手绘涂鸦风（见 §6.5）的 token 字典是纯 Tailwind 驱动，与 Naive UI 这类成品组件库外观不兼容；用无头组件库 Radix-Vue 提供可访问性骨架，外壳全自写以贯彻手绘风 | Naive UI（外观不可改造为 dashed 边框/硬偏移阴影）、shadcn-vue、Element Plus |
 | KDBX 引擎 | **kdbxweb（vendor 收编进仓库）** | MIT、KDBX3/4 全支持、merge 是现成 API、ProtectedValue 内存 XOR 保护、KeeWeb 生产验证 | 自写格式层（绝对不做）、keepass-rs（Rust，成熟度低） |
 | Argon2 KDF | **hash-wasm 的 argon2id** | 活跃维护，经 kdbxweb 的 `setArgon2Impl` 接入 | 纯 JS 实现（性能差一个量级） |
 | Auto-Type | **Rust `enigo`**（Windows SendInput） | 唯一必须手写的 Rust 模块，边界小 | nut-js（Electron 生态） |
 | 目标平台 | **仅 Windows 10/11 x64** | 作者自用 + 最大用户盘，范围锁死换取聚焦 | 全平台（成本翻数倍） |
-| 许可证 | **MIT** | kdbxweb/Tauri/Vue/Naive UI 全部宽松许可，无传染，留商业化退路 | GPL（只有真 fork KeePassXC 才被迫用） |
+| 许可证 | **MIT** | kdbxweb/Tauri/Vue/Radix-Vue 全部宽松许可，无传染，留商业化退路 | GPL（只有真 fork KeePassXC 才被迫用） |
 
 ## 4. 架构
 
@@ -93,7 +93,7 @@
 | 安全 | Windows Hello 快速解锁（DPAPI 包裹密钥）、自动锁定（空闲/锁屏/休眠）、剪贴板 N 秒清空、窗口防截屏 | |
 | 同步 | 文件 watcher 自动重载 + 保存前外部变更检测与 merge | §8 |
 | 进出 | 导入：CSV（Chrome/Edge 导出格式）；导出：KDBX 另存、CSV（双确认+明文警告） | |
-| 外观 | 明/暗/跟随系统三态主题，天空蓝主色低饱和同色系 | |
+| 外观 | 手绘涂鸦风纸张美学（奶白纸 #fffef5 + 墨黑 + 标记笔红/蓝绿/黄），虚线边框 + 硬偏移阴影；详见 §6.5；不做暗色模式（手绘涂鸦风无暗色范式） | 首屏一眼可识别为手绘涂鸦风；禁用项零出现 |
 | 发布 | GitHub Releases + winget 清单，安装包 < 10MB | |
 
 ### v2（按用户反馈排优先级）
@@ -103,7 +103,8 @@
 - 密码健康报告 + HIBP 离线 k-匿名查询（默认关闭，保持离线哲学）
 - Bitwarden / 1Password / Proton Pass 导入器
 - 附件
-- WebDAV 直连拉取推送（作为文件哲学的可选补充）
+- **多设备同步矩阵**（详见 §8.5）：本地网盘文件夹（v1 已含 watcher，零开发）+ 应用内通用 WebDAV 连接器（一套代码覆盖坚果云/Nextcloud/NAS/自托管 VPS）+ 应用内 OneDrive OAuth 连接器；自托管部署套件（仓库 `deploy/` 目录，docker compose：Caddy + WebDAV + 可选服务端版本快照）作为通用 WebDAV 连接器的下游场景
+- 离线缓存（本地保留密文副本，断网可用，联网后下次保存一并同步）
 
 ### 永久不做
 
@@ -127,11 +128,68 @@ SSH Agent、Secret Service、KeeShare、Passkeys、CLI、插件系统、自有�
 
 ### 6.3 主界面
 
-经典三栏的现代化重制：左侧分组树（可折叠/拖拽）、中列条目列表（紧凑/舒适双密度、最近使用置顶）、右侧详情面板。编辑用抽屉/弹窗表单，所有"复制"按钮带一次性反馈。空态给新手引导（新建/导入/打开现有库）。
+经典三栏手绘风重制：左侧分组树（可折叠/拖拽）、中列条目列表（紧凑/舒适双密度、最近使用置顶）、右侧详情面板。卡片用虚线边框 + 硬偏移阴影（见 §6.5）。编辑用抽屉/弹窗表单，所有"复制"按钮带一次性反馈。空态给新手引导（新建/导入/打开现有库）。
 
 ### 6.4 Auto-Type 策略（关键产品决策）
 
 **抛弃 KeePassXC 的窗口关联规则系统**（那是它"繁琐"的主要来源之一）。KeyLite 的流程：焦点放在目标窗口 → 按全局快捷键 → 面板里搜两下 → 选中 → Auto-Type 键入。条目可选自定义序列（KeePass 语法的常用子集），最近使用自动置顶。不做自动匹配，把选择权显式交还用户，换取零配置。
+
+### 6.5 设计语言：手绘涂鸦风
+
+整体采用手绘涂鸦风（Hand-Drawn Doodle）作为唯一设计语言——纸张美学、虚线手绘线条、标记笔配色。完整提示词与 token 字典存于 `docs/design/hand-drawn-doodle-stylekit.md`，本节是 spec 内的摘要与适配策略。
+
+**核心 token**：
+- 背景：奶白纸张 `#fffef5`、辅 `#f8f7f0`
+- 文字/边框：墨黑 `#2c2c2c`
+- 标记笔强调色：红 `#ff6b6b`、蓝绿 `#4ecdc4`、黄 `#ffd93d`
+- 边框：`border-2 border-dashed border-[#2c2c2c]`，圆角 `rounded-sm`
+- 阴影：硬偏移 `shadow-[4px_4px_0px_#4ecdc4]`（hover 加大并改色）
+- 动效：`transition-all duration-200 ease-in-out`；hover 微小位移，active 压平阴影 + `scale-[0.98]`
+
+**绝对禁止**（出现即重写）：`bg-gradient-*`、`shadow-sm/md/lg/xl`、`backdrop-blur`、`rounded-none/lg/xl/2xl/full`、`border-solid`、`font-mono`。
+
+**适配策略**：
+- 不用成品 UI 组件库（Naive UI 等外观不可改造）；用 Radix-Vue 提供无头可访问性骨架，外壳全自写
+- v1 不做暗色模式（手绘涂鸦风无暗色范式）；"深色手绘纸张"留作后期彩蛋
+- 主界面、快速面板、解锁页、设置、空态、错误态全部贯彻同一套 token，无例外
+- 主界面三栏数据组件（树/列表/详情）外壳开发量约两周，构成 M1 的主要工作
+
+**校验**：每次前端 PR 自检 token 字典与禁止项（stylekit 文件末尾的 CHECKLIST）。
+
+### 6.6 条目数据模型
+
+**建库时（一次性）**：
+
+| 字段 | 必填 | 落点 |
+|---|---|---|
+| 主密码 | 是 | 经 Argon2id 派生加密密钥；忘了 = 库报废，UI 二次确认 |
+| 密钥文件 | 否 | 第二因子；KeyLite 可生成随机 key file |
+| 库名称/描述 | 否 | 纯元数据 |
+
+**条目录入（核心五件套为表单默认露出的字段）**：
+
+| 字段 | UI 必填 | KDBX 落点 |
+|---|---|---|
+| 标题 | 是 | `entry.fields.Title` |
+| 用户名 | 否 | `entry.fields.UserName` |
+| 密码 | 否（生成器可代填） | `entry.fields.Password`（ProtectedValue） |
+| 网址 | 否（favicon 与"打开 URL"靠它，强烈建议填） | `entry.fields.URL` |
+| 备注 | 否 | `entry.fields.Notes` |
+
+**组织**：分组（必属一组，默认根组）、标签（多值，逗号分隔）。
+
+**可选增强**（折叠在"高级"区）：
+
+| 字段 | 落点 | 典型用途 |
+|---|---|---|
+| TOTP 密钥 | 自定义属性 `otp` = `otpauth://` URI | 与 KeePassXC/KeeWeb 通用兼容格式，互认 |
+| 自定义 Auto-Type 序列 | `entry.autotype.defaultSequence` | 登录框顺序特殊的网站 |
+| 过期时间 | `entry.times` | 到期提醒改密码 |
+| 自定义字段（键值对） | `entry.fields` 扩展 | 恢复码、安全问题答案、CVV——勾"保护"则存为 ProtectedValue |
+
+**自动处理（用户不填）**：favicon（按 URL 自动下载）、UUID、创建/修改/访问时间、条目历史版本（每次保存自动快照）、回收站归属。
+
+**物理存储**：全部落在单个 `vault.kdbx` 文件里——条目、分组、TOTP、历史、图标、附件（v2）一体打包，密文一体。位置由用户决定（本地/网盘/远程 WebDAV，见 §8/§8.5）。
 
 ## 7. 数据安全设计
 
@@ -155,6 +213,28 @@ SSH Agent、Secret Service、KeeShare、Passkeys、CLI、插件系统、自有�
 2. **保存前检测**：落盘前比对 mtime+size；发现外部变更 → 先 `db.merge(remoteDb)`（kdbxweb 条目级三方合并，按 UUID）再保存；合并不可自动完成时提示用户选择（本地版 / 远端版 / 双保存）
 3. **兜底**：不拦截 OneDrive/坚果云的冲突副本机制，用户文件永不静默丢弃
 4. **v1 边界**：不解析网盘客户端、不内置任何传输协议
+
+### 8.5 多设备同步矩阵（v2，对应 §5 v2 同步条目）
+
+v1 只做"本地文件 + 网盘文件夹自动重载"，零应用内传输代码。v2 把传输收进应用，但仍**不引入自有同步协议**——只是 HTTP 文件读写。
+
+**客户端连接器**：
+- **通用 WebDAV 连接器**：URL + 账号密码（DPAPI 包裹存储），拒绝明文 HTTP。一套代码覆盖坚果云、Nextcloud、群晖 NAS、自托管 VPS
+- **OneDrive OAuth 连接器**：浏览器登录微软账号 → OAuth 授权 → 自动后台同步。覆盖"没域名没服务器"的最大众人群
+- 都复用 §8.1 watcher 重载、§8.2 保存前 merge 的现有逻辑；只是"本地文件"换成"远程 URL"，watcher 换成"窗口获焦时 HEAD/ETag 轮询"
+- 保存用 PUT + `If-Match`（ETag 乐观锁）；服务端不支持 ETag 时降级为 mtime+size 比对
+
+**离线缓存**：
+- 本地保留一份密文副本，断网仍可读写；联网后下次保存时一并同步
+- 与 §8.1 自动重载共用 merge 路径（本地版 + 远程版的条目级合并）
+
+**自托管部署套件**（仓库 `deploy/` 目录，docker compose）：
+- Caddy（Let's Encrypt 自动 HTTPS + basic auth + 限流）+ WebDAV 后端 + 可选服务端版本快照（相当于服务端滚动 .bak）
+- 用户在自己 VPS 上两条命令拉起；套件不含任何加密代码，只服务静态密文
+- 默认公网暴露（HTTPS + 强密码 + 限流）；高级选项可只监听 VPN 接口（Tailscale/WireGuard）
+- 作为通用 WebDAV 连接器的下游场景之一，不是必选项
+
+**威胁模型**：服务器永远只见密文；服务器被攻破 = 攻击者拿密文做离线爆破，被 Argon2id（64MB/2 迭代）顶住，与 OneDrive/坚果云同级。若用密钥文件作第二因子，密钥文件不得与库同服务器。
 
 ## 9. 错误处理与数据完整性
 
