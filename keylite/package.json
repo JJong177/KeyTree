@@ -10,9 +10,11 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@noble/hashes": "^2.4.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.8.3",
     "@tauri-apps/plugin-opener": "^2",
+    "argon2-browser": "^1.18.0",
     "hash-wasm": "^4.12.0",
     "kdbxweb": "file:vendor/kdbxweb",
     "radix-vue": "^1.9.17",

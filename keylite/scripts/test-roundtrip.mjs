@@ -4,25 +4,20 @@
  * 跑法：node scripts/test-roundtrip.mjs
  */
 import kdbxweb from "../vendor/kdbxweb/dist/kdbxweb.js";
-import { argon2id } from "hash-wasm";
+import { argon2d, argon2i, argon2id } from "@noble/hashes/argon2.js";
 
 kdbxweb.CryptoEngine.setArgon2Impl(
   (password, salt, memory, iterations, length, parallelism, type) => {
-    if (type === 0) {
-      return Promise.reject(new Error("Argon2d not supported"));
-    }
-    return argon2id({
-      password: new Uint8Array(password),
-      salt: new Uint8Array(salt),
-      iterations,
-      memorySize: memory,
-      parallelism,
-      hashLength: length,
-      outputType: "binary",
-    }).then((hash) => {
-      const out = new Uint8Array(hash);
-      return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength);
+    const impl = type === 0 ? argon2d : type === 1 ? argon2i : argon2id;
+    const out = impl(new Uint8Array(password), new Uint8Array(salt), {
+      t: iterations,
+      m: memory,
+      p: parallelism,
+      dkLen: length,
     });
+    return Promise.resolve(
+      out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength)
+    );
   }
 );
 
@@ -31,7 +26,7 @@ const credentials = new kdbxweb.Credentials(
 );
 
 const db = kdbxweb.Kdbx.create(credentials, "KeyLite 测试库");
-db.setKdf(kdbxweb.Consts.KdfId.Argon2id); // kdbxweb 默认 Argon2d，KeyLite 统一用 Argon2id
+db.setKdf(kdbxweb.Consts.KdfId.Argon2id);
 const group = db.createGroup(db.getDefaultGroup(), "工作");
 const entry = db.createEntry(group);
 entry.fields.set("Title", "GitHub");

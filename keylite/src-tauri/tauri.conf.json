@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.keylite.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "node node_modules/vite/bin/vite.js",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "node node_modules/vite/bin/vite.js build",
     "frontendDist": "../dist"
   },
   "app": {

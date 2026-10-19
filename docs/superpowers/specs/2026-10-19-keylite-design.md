@@ -43,7 +43,7 @@
 | 前端框架 | **Vue 3 + TypeScript** | 按作者手感定 | React、Svelte 5 |
 | UI 组件库 | **Radix-Vue + Tailwind CSS + 自写外壳** | 自然有机风（见 §6.5）的 token 是纯 Tailwind 驱动，与 Naive UI 这类成品组件库外观不兼容（rounded-full + border-stone-200 + font-serif 不可改造）；用无头组件库 Radix-Vue 提供可访问性骨架，外壳全自写 | Naive UI（外观不可改造）、shadcn-vue、Element Plus |
 | KDBX 引擎 | **kdbxweb（vendor 收编进仓库）** | MIT、KDBX3/4 全支持、merge 是现成 API、ProtectedValue 内存 XOR 保护、KeeWeb 生产验证 | 自写格式层（绝对不做）、keepass-rs（Rust，成熟度低） |
-| Argon2 KDF | **hash-wasm 的 argon2id** | 活跃维护，经 kdbxweb 的 `setArgon2Impl` 接入 | 纯 JS 实现（性能差一个量级） |
+| Argon2 KDF | **argon2-browser（wasm，前端）+ @noble/hashes（纯 JS，Node 测试）** | KDBX 生态三种变体都在用（KeePassXC 默认 id、kdbxweb/pykeepass 默认 d）——hash-wasm 只支持 i/id，**打不开 Argon2d 库**；argon2-browser 覆盖 d/i/id 且是 KeeWeb 同款 wasm 实现 | hash-wasm（只支持 i/id，实测在 Argon2d 库上失败） |
 | Auto-Type | **Rust `enigo`**（Windows SendInput） | 唯一必须手写的 Rust 模块，边界小 | nut-js（Electron 生态） |
 | 目标平台 | **仅 Windows 10/11 x64** | 作者自用 + 最大用户盘，范围锁死换取聚焦 | 全平台（成本翻数倍） |
 | 许可证 | **MIT** | kdbxweb/Tauri/Vue/Radix-Vue 全部宽松许可，无传染，留商业化退路 | GPL（只有真 fork KeePassXC 才被迫用） |
