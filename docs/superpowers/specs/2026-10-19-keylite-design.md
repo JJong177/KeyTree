@@ -41,7 +41,7 @@
 |---|---|---|---|
 | 应用壳 | **Tauri 2** | 产物 3-10MB（WebView2 为 Win10/11 自带），"轻"的卖点由框架做实；全局快捷键/托盘/自启/通知/窗口防截屏全是官方插件 | Electron（100MB+，与产品叙事矛盾） |
 | 前端框架 | **Vue 3 + TypeScript** | 按作者手感定 | React、Svelte 5 |
-| UI 组件库 | **Radix-Vue + Tailwind CSS + 自写外壳**（多主题 CSS 变量驱动，见 §6.5） | 4 主题各有不同 token（圆角/边框/阴影/字体），组件用 CSS 变量 `[border-radius:var(--radius)]` 等引用、`:root[data-theme]` 切换；Radix-Vue 提供无头可访问性骨架 | Naive UI（外观不可改造）、shadcn-vue、Element Plus |
+| UI 组件库 | **Radix-Vue + Tailwind CSS + 自写外壳** | 自然有机风（见 §6.5）的 token 是纯 Tailwind 驱动，与 Naive UI 这类成品组件库外观不兼容（rounded-full + border-stone-200 + font-serif 不可改造）；用无头组件库 Radix-Vue 提供可访问性骨架，外壳全自写 | Naive UI（外观不可改造）、shadcn-vue、Element Plus |
 | KDBX 引擎 | **kdbxweb（vendor 收编进仓库）** | MIT、KDBX3/4 全支持、merge 是现成 API、ProtectedValue 内存 XOR 保护、KeeWeb 生产验证 | 自写格式层（绝对不做）、keepass-rs（Rust，成熟度低） |
 | Argon2 KDF | **hash-wasm 的 argon2id** | 活跃维护，经 kdbxweb 的 `setArgon2Impl` 接入 | 纯 JS 实现（性能差一个量级） |
 | Auto-Type | **Rust `enigo`**（Windows SendInput） | 唯一必须手写的 Rust 模块，边界小 | nut-js（Electron 生态） |
@@ -93,7 +93,7 @@
 | 安全 | Windows Hello 快速解锁（DPAPI 包裹密钥）、自动锁定（空闲/锁屏/休眠）、剪贴板 N 秒清空、窗口防截屏 | |
 | 同步 | 文件 watcher 自动重载 + 保存前外部变更检测与 merge | §8 |
 | 进出 | 导入：CSV（Chrome/Edge 导出格式）；导出：KDBX 另存、CSV（双确认+明文警告） | |
-| 外观 | 4 主题可选（柔和界面 / 自然有机 / Stripe / 伊斯兰几何），CSS 变量驱动切换；详见 §6.5 | 4 主题各一眼可识别、各无禁止项违规 |
+| 外观 | 自然有机风（Natural Organic）：大地色 + 米色背景 `#faf6f1` + 衬线标题 `font-serif` + `rounded-full` 按钮 + `rounded-[2rem]` 卡片；详见 §6.5；不做暗色模式 | 首屏一眼可识别为自然有机风；禁用项零出现 |
 | 发布 | GitHub Releases + winget 清单，安装包 < 10MB | |
 
 ### v2（按用户反馈排优先级）
@@ -134,39 +134,36 @@ SSH Agent、Secret Service、KeeShare、Passkeys、CLI、插件系统、自有�
 
 **抛弃 KeePassXC 的窗口关联规则系统**（那是它"繁琐"的主要来源之一）。KeyLite 的流程：焦点放在目标窗口 → 按全局快捷键 → 面板里搜两下 → 选中 → Auto-Type 键入。条目可选自定义序列（KeePass 语法的常用子集），最近使用自动置顶。不做自动匹配，把选择权显式交还用户，换取零配置。
 
-### 6.5 设计语言：4 主题可选（CSS 变量驱动）
+### 6.5 设计语言：自然有机风（Natural Organic）
 
-KeyLite 内置 4 个主题，用户在设置页切换。每个主题是一套完整的视觉语言（颜色、圆角、边框、阴影、字体），不是简单换色——切换主题 = 切换整套外观。
+整体采用自然有机风（Natural Organic）作为唯一设计语言——大地色系、有机形状、衬线标题、温暖信任感。完整提示词与 token 字典见对话历史（Jong 2026-10-17 提供），代码期提取建 `docs/design/natural-organic-stylekit.md` 归档。
 
-**4 个主题**：
+**核心 token**：
+- 背景：温暖米色 `#faf6f1`、辅 `bg-white`
+- 文字/主色：`text-stone-800`（不用纯黑 `text-black`）
+- 强调色：sage green `#8b9d77`、warm tan `#d4a373`、stone brown `#5c4033`
+- 警示色：深红 `#8b2332`（"无法恢复"等）
+- 边框：`border border-stone-200`，圆角 `rounded-full`（按钮）/ `rounded-[2rem]`（卡片）
+- 阴影：几乎无，仅 `shadow-sm`
+- 字体：标题 `font-serif`、正文 `font-sans`
+- 动效：`transition-colors duration-300`；hover 轻微下沉 `translate-y-0.5`（不漂浮弹跳），active `scale-95`
 
-| 主题 | 调性 | 主色 | 背景 | 圆角 | 边框 | 阴影 |
-|---|---|---|---|---|---|---|
-| ① 柔和界面 (Soft UI) | 圆润亲和 | indigo `#4f46e5` | slate-50 | rounded-2xl/3xl | 无边框 | 柔和带色 `shadow-lg/xl + opacity` |
-| ② 自然有机 (Natural Organic) | 大地温暖 | stone-800 / sage `#8b9d77` | 米色 `#faf6f1` | rounded-full / `[2rem]` | border stone-200 | 几乎无 `shadow-sm` |
-| ③ Stripe | 专业精密 | 紫 `#635bff` | 浅灰 `#f6f9fc` + 网格 | rounded-lg/xl | border gray-200 | 精致多层 `shadow-[rgba]` |
-| ④ 伊斯兰几何 (Islamic Geometric) | 庄重对称 | 金 `#c9a74e` + 深蓝 `#1a3a5c` | 深蓝 `#1a3a5c` | rounded-lg/xl | border-2 `#c9a74e` | 金色辉光 `shadow-[rgba(201,167,78)]` |
-
-**视觉参考**：`design/mockups/style-comparison-unlock.html`（4 主题各做一版解锁页的对比稿）。完整提示词与 token 字典见对话历史，代码期提取建 `docs/design/stylekits/` 目录归档。
-
-**实现架构：CSS 变量驱动**：
-- 所有视觉属性（颜色、圆角、边框、阴影、字体）用 CSS 变量定义，组件 class 用 Tailwind 任意值引用：`[border-radius:var(--radius)] [box-shadow:var(--shadow)] bg-[var(--bg-card)] text-[var(--text-primary)]` 等
-- 每个主题在 `:root[data-theme="xxx"]` 下定义一套变量值
-- 切换主题 = 切换 `<html data-theme="xxx">` 属性，所有组件外观跟着变
-- 不用成品 UI 组件库（Naive UI 等外观不可改造）；用 Radix-Vue 提供无头可访问性骨架，外壳全自写
-
-**禁止项**（每主题不同，代码期建 lint 规则按当前主题检查）：
-- Soft UI：禁 rounded-none/sm, border-2/4, shadow-[, bg-black
-- Natural Organic：禁 bg-blue/purple/cyan, text-black, shadow-lg/xl/2xl, bg-gradient-*
-- Stripe：禁 rounded-3xl, shadow-inner, bg-pink/red/yellow, hover:scale-*, ease-in-out
-- Islamic：禁 font-mono, rounded-none/full, shadow-2xl, bg-black, 荧光色
+**绝对禁止**（出现即重写）：
+- 冷色调：`bg-blue-*`、`bg-purple-*`、`bg-cyan-*`
+- 纯黑：`text-black`、`bg-black`
+- 尖锐圆角：`rounded-none`、`rounded-sm`
+- 重阴影：`shadow-lg`、`shadow-xl`、`shadow-2xl`
+- 渐变：`bg-gradient-*`
 
 **适配策略**：
-- v1 就做 4 主题切换（设置页主题选择器 + CSS 变量驱动），不做"v1 单主题 v2 加多主题"——否则 v1 组件全部要重写
-- 不做暗色模式（4 主题各有自己的明暗调性，不额外做 light/dark 切换）
-- 主界面三栏数据组件外壳开发量约 2-3 周（比单主题多约 30%，因为每个组件用 CSS 变量而非写死 class），构成 M1 的主要工作
+- 不用成品 UI 组件库（Naive UI 等外观不可改造为 rounded-full + border-stone-200 + font-serif）；用 Radix-Vue 提供无头可访问性骨架，外壳全自写
+- 不做暗色模式（自然有机风无暗色范式）
+- 单主题意味着组件 class 可以写死（不需要 CSS 变量驱动），M1 组件外壳开发量约 2 周
+- 主界面、快速面板、解锁页、设置、空态、错误态全部贯彻同一套 token，无例外
 
-**校验**：每次前端 PR 自检当前主题的 token 与禁止项。
+**视觉参考**：`design/mockups/style-comparison-unlock.html` 第 2 个 section（自然有机风解锁页实现）。
+
+**校验**：每次前端 PR 自检 token 字典与禁止项。
 
 ### 6.6 条目数据模型
 
