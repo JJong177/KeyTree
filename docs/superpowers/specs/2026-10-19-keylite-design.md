@@ -205,6 +205,22 @@ SSH Agent、Secret Service、KeeShare、Passkeys、CLI、插件系统、自有�
 | 备份 | 每次成功打开库时滚动维护 `*.kdbx.bak`（保留上一版）；损坏库的恢复路径写进错误提示 |
 | 数据库默认参数 | KDBX 4.1 + Argon2id（64MB / 2 迭代）+ ChaCha20，与 KeePassXC 默认一致 |
 
+### 7.1 Quick Unlock（Windows Hello 快速解锁）详解
+
+两阶段机制：
+
+**① 启用一次**（用户勾「启用快速解锁」时）：输主密码 → kdbxweb 解密库 → 把库密钥用 Windows DPAPI（`CryptProtectData`，绑定当前 Windows 账户）加密 → 存本机 AppData `quick-unlock.key`。
+
+**② 日常解锁**（每次启动 KeyLite）：按「Hello 解锁」→ Windows 弹指纹/PIN → 验证通过 → DPAPI 解包 `quick-unlock.key` → 拿到库密钥 → 解密 `vault.kdbx` → 进入就绪态。
+
+**安全降级点**：从「主密码强度」降到「Windows 账户 + Hello 验证强度」。最糟攻击链：有人偷你 Windows 密码 + 知道你的 PIN → 密码库跟着失守。只要 Windows 账户本身干净，安全性与电脑本身的安全等同。
+
+**先例**：KeePassXC、1Password、Bitwarden 桌面端、Enpass——所有桌面密码管理器都这么做，成熟权衡。
+
+**失效条件**：库锁定后立刻弃用（要重新输主密码重新启用）、改密即弃、关机即弃、换 Windows 账户即弃。日常体验：开机一次主密码 + 启用，之后整天指纹，第二天再来一次主密码，循环。
+
+**DPAPI 特性**：加密时绑定当前 Windows 账户的密钥链——别的账户、别的机器、拷走 `quick-unlock.key` 文件都解不开。
+
 ## 8. 多设备同步（文件哲学）
 
 **心智模型**：库里只有一个加密文件，放哪、怎么传是用户的自由；应用负责感知它的变化。
