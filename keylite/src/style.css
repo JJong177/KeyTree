@@ -1,22 +1,72 @@
 @import "tailwindcss";
 
-/* 自然有机风基础层（spec §6.5 token 摘要） */
+/* 自然有机风基础层（spec §6.5 / design/mockups/keylite-screens-v2-natural.html） */
 :root {
-  --paper: #faf6f1;
+  --paper: #faf6f1; /* 米色纸面 */
   --ink: #292524; /* stone-800 */
   --ink-soft: #57534e; /* stone-600 */
   --line: #d6d3d1; /* stone-300 */
-  --sage: #8b9d77;
-  --tan: #d4a373;
-  --warn: #8b2332;
+  --sage: #8b9d77; /* 鼠尾草绿 */
+  --tan: #d4a373; /* 赭石 */
+  --warn: #8b2332; /* 深红（警示/标签） */
+  --wood: #5c4033; /* 深棕（线条/正文强调） */
+}
+
+html,
+body,
+#app {
+  height: 100%;
 }
 
 body {
   background: var(--paper);
   color: var(--ink);
   font-family: "Segoe UI", -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, .font-serif {
+.font-serif {
   font-family: Georgia, "Times New Roman", serif;
 }
+
+/* 细一点的滚动条，别打断有机感 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background-clip: content-box;
+  background-color: #e7e5e4;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #d6d3d1;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+}
+
+/* 复选框跟随鼠尾草绿 */
+input[type="checkbox"] {
+  accent-color: var(--sage);
+}
+
+/* 快速面板是真透明无边框窗口：html/body 全透明，UI 卡片自己画圆角、边框和阴影 */
+.panel-window,
+.panel-window body {
+  background: transparent !important;
+  overflow: hidden;
+}
+.panel-window #app {
+  height: 100%;
+  background: transparent;
+}
+

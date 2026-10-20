@@ -2,3 +2,16 @@
 node_modules/
 dist/
 target/
+tmp/
+*.log
+.workbuddy/
+node_modules/
+dist/
+target/
+tmp/
+*.log
+
+# 密码库与敏感产物一律不进 git（真实库 + 恢复候选列表）
+*.kdbx
+recovery-candidates.txt
+recovery-result.txt

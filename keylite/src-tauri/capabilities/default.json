@@ -1,10 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "default capability for the main window",
-  "windows": ["main"],
+  "description": "KeyTree 的默认能力：主窗口 + 快速面板窗口",
+  "windows": ["main", "panel"],
   "permissions": [
     "core:default",
-    "dialog:default"
+    "dialog:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://**" },
+        { "url": "http://**" }
+      ]
+    }
   ]
 }
