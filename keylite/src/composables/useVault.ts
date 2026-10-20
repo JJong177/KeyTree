@@ -43,6 +43,8 @@ export interface EntryVM {
   usageCount: number;
   /** 自定义图标（favicon）的 data URL；null = 没有图标，调用方降级为字母头像 */
   icon: string | null;
+  /** 收藏（存 KDBX CustomData，KeePassXC 打开时忽略） */
+  favorite: boolean;
 }
 
 export interface EntryDraft {
@@ -305,6 +307,7 @@ function toVM(
     createdAt: entry.times.creationTime ?? null,
     usageCount: entry.times.usageCount ?? 0,
     icon: entry.customIcon ? iconUrlOf(entry.customIcon.id) : null,
+    favorite: !!entry.customData?.get("keytree.favorite"),
   };
 }
 
@@ -667,6 +670,44 @@ async function createKeyFile(path: string): Promise<boolean> {
   } catch (e) {
     error.value = `生成密钥文件失败：${msg(e)}`;
     return false;
+  }
+}
+
+const FAVORITE_KEY = "keytree.favorite";
+
+/** 收藏/取消收藏条目（存 KDBX CustomData，其他客户端无感） */
+async function toggleFavorite(uuid: string): Promise<void> {
+  const entry = entryRefs.get(uuid);
+  if (!entry) return;
+  error.value = "";
+  try {
+    if (entry.customData?.get(FAVORITE_KEY)) {
+      entry.customData.delete(FAVORITE_KEY);
+    } else {
+      entry.customData?.set(FAVORITE_KEY, { value: "1" });
+    }
+    entry.times.update();
+    rebuild();
+    await saveVault();
+  } catch (e) {
+    error.value = `收藏失败：${msg(e)}`;
+  }
+}
+
+/**
+ * 使用一次（复制密码/动态码/Auto-Type）：usageCount +1 并落盘。
+ * 快速面板按「最近使用 > 收藏」排序（spec §6.2），这就是排序依据。
+ */
+async function touchUsage(uuid: string): Promise<void> {
+  const entry = entryRefs.get(uuid);
+  if (!entry) return;
+  try {
+    entry.times.usageCount = (entry.times.usageCount ?? 0) + 1;
+    entry.times.update();
+    await saveVault();
+    rebuild();
+  } catch {
+    // 统计失败不影响主流程
   }
 }
 
@@ -1118,6 +1159,7 @@ async function autoType(uuid: string): Promise<boolean> {
       password: fieldText(entry, "Password"),
     });
     await invoke("auto_type", { parts });
+    void touchUsage(uuid);
     status.value = "已发送自动输入";
     return true;
   } catch (e) {
@@ -1266,6 +1308,8 @@ export function useVault() {
     autoType,
     historyOf,
     restoreHistory,
+    toggleFavorite,
+    touchUsage,
     selectEntry,
     selectGroup,
     openCreateDrawer,

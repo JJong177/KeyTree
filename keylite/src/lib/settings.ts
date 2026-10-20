@@ -13,6 +13,8 @@ export interface AppSettings {
   lastVaultPath: string;
   /** 最近使用的库（多库支持，方案 A：一次解锁一个） */
   vaults: VaultMeta[];
+  /** 开机自启（走 tauri-plugin-autostart，注册当前用户登录项） */
+  launchAtLogin: boolean;
 }
 
 export interface VaultMeta {
@@ -55,6 +57,7 @@ const defaults: AppSettings = {
   screenshotProtection: true,
   lastVaultPath: "",
   vaults: [],
+  launchAtLogin: false,
 };
 
 function clamp(value: number, min: number, max: number, fallback: number): number {
@@ -97,6 +100,7 @@ function load(): AppSettings {
               lastOpenedAt: Number(v.lastOpenedAt) || 0,
             }))
         : [],
+      launchAtLogin: parsed.launchAtLogin === true,
     };
   } catch {
     return { ...defaults };

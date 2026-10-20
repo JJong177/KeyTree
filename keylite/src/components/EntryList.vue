@@ -102,11 +102,12 @@ function onEmptyTrash() {
             <img v-if="e.icon" :src="e.icon" alt="" class="h-6 w-6 object-contain" />
             <template v-else>{{ initialOf(e.title) }}</template>
           </span>
-          <span class="min-w-0 flex-1">
-            <span class="flex items-center gap-2">
-              <span class="truncate font-medium text-stone-800">{{ e.title }}</span>
-              <span
-                v-if="e.tags.length"
+            <span class="min-w-0 flex-1">
+              <span class="flex items-center gap-2">
+                <span class="truncate font-medium text-stone-800">{{ e.title }}</span>
+                <span v-if="e.favorite" class="shrink-0 text-xs text-[#d4a373]" title="已收藏">★</span>
+                <span
+                  v-if="e.tags.length"
                 class="shrink-0 rounded-full border border-[#8b2332]/40 bg-[#8b2332]/10 px-2 py-0.5 text-xs text-[#8b2332]"
               >
                 {{ e.tags[0] }}

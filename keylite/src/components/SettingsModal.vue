@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartEnabled } from "@tauri-apps/plugin-autostart";
 import { useVault } from "../composables/useVault";
 import { settings } from "../lib/settings";
 import { toast } from "../lib/toast";
@@ -57,7 +58,28 @@ onMounted(async () => {
   } catch {
     helloText.value = "不可用";
   }
+  // 以系统实际注册状态为准（用户可能在系统设置里改过）
+  try {
+    settings.launchAtLogin = await autostartEnabled();
+  } catch {
+    /* 插件不可用时保持本地值 */
+  }
 });
+
+// 开机自启：勾选变化即调系统注册/注销
+watch(
+  () => settings.launchAtLogin,
+  async (on) => {
+    try {
+      if (on) await autostartEnable();
+      else await autostartDisable();
+    } catch {
+      // 注册失败时回滚显示，避免 UI 谎报
+      settings.launchAtLogin = !on;
+      toast("开机自启设置失败");
+    }
+  }
+);
 
 watch(
   () => settings.quickUnlock,
@@ -413,6 +435,19 @@ const clipboardOptions = [
           <div class="border-b border-stone-200 pb-5">
             <label class="mb-1 flex items-center gap-2 text-sm font-medium text-stone-700">
               <input
+                v-model="settings.launchAtLogin"
+                type="checkbox"
+                class="h-4 w-4"
+              />
+              开机自动启动 KeyTree
+            </label>
+            <p class="mt-1 text-xs text-stone-400">
+              登录 Windows 后自动在后台运行；库仍处于锁定状态，解锁后才可见
+            </p>
+          </div>
+          <div class="border-b border-stone-200 pb-5">
+            <label class="mb-1 flex items-center gap-2 text-sm font-medium text-stone-700">
+              <input
                 v-model="settings.screenshotProtection"
                 type="checkbox"
                 class="h-4 w-4"
@@ -420,7 +455,7 @@ const clipboardOptions = [
               窗口防截屏
             </label>
             <p class="mt-1 text-xs text-stone-400">
-              开启后截图 / 录屏里 KeyTree 窗口显示为黑块（远程桌面显示异常时可关闭）
+              开启后截图 / 录屏里 KeyTree 窗口不会被捕获（远程桌面显示异常时可关闭）
             </p>
           </div>
           <div>

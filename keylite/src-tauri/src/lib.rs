@@ -717,6 +717,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, shortcut, event| {
@@ -768,12 +772,70 @@ pub fn run() {
                 });
             }
 
-            // 关掉主窗口就退出整个应用（快速面板是隐藏窗口，不能拦着不退出）
+            // 系统托盘：显示主窗 / 锁定 / 退出（唯一正常退出入口）
+            {
+                use tauri::menu::{Menu, MenuItem};
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+                let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+                let lock = MenuItem::with_id(app, "lock", "锁定密码库", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "退出 KeyTree", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show, &lock, &quit])?;
+
+                TrayIconBuilder::with_id("keytree-tray")
+                    .icon(app.default_window_icon().expect("no tray icon").clone())
+                    .tooltip("KeyTree")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "lock" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.emit("keytree:tray-lock", ());
+                            }
+                        }
+                        "quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        // 左键单击托盘：切换主窗口显示/隐藏
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                if window.is_visible().unwrap_or(false)
+                                    && window.is_focused().unwrap_or(false)
+                                {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.unminimize();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                    })
+                    .build(app)?;
+            }
+
+            // 关闭主窗口 = 最小化到托盘（不退出）；真正退出只走托盘菜单
             if let Some(main) = app.get_webview_window("main") {
                 let handle = app.handle().clone();
                 main.on_window_event(move |event| match event {
-                    tauri::WindowEvent::CloseRequested { .. } => handle.exit(0),
-                    // 主窗口失焦时记下别家窗口，之后从主界面也能 Auto-Type
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let _ = handle.get_webview_window("main").map(|w| w.hide());
+                    }
                     tauri::WindowEvent::Focused(false) => capture_foreground(),
                     _ => {}
                 });

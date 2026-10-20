@@ -8,6 +8,9 @@ export interface PanelEntry {
   hasTotp: boolean;
   tags: string[];
   updatedAt: number | null;
+  /** 使用次数：复制/Auto-Type 递增，面板按「最近使用 > 收藏」排序 */
+  usageCount: number;
+  favorite: boolean;
 }
 
 export type PanelRequest =

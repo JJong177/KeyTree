@@ -26,6 +26,7 @@ export function usePanelHost(): void {
     autoType,
     selectGroup,
     selectEntry,
+    touchUsage,
   } = useVault();
 
   let unlisten: UnlistenFn | undefined;
@@ -41,6 +42,8 @@ export function usePanelHost(): void {
         hasTotp: entry.hasTotp,
         tags: entry.tags,
         updatedAt: entry.updatedAt ? entry.updatedAt.getTime() : null,
+        usageCount: entry.usageCount,
+        favorite: entry.favorite,
       }));
   }
 
@@ -61,6 +64,7 @@ export function usePanelHost(): void {
       case "copy-password": {
         const draft = draftOf(request.id);
         if (!draft) return;
+        void touchUsage(request.id);
         await reply({
           kind: "password",
           id: request.id,
@@ -74,6 +78,7 @@ export function usePanelHost(): void {
         const config = totpConfigOf(request.id);
         if (!config) return;
         const result = await generateTotp(config);
+        void touchUsage(request.id);
         await reply({
           kind: "totp",
           id: request.id,

@@ -27,11 +27,13 @@ const results = computed(() => {
           .includes(q)
       )
     : list;
-  return [...matched]
-    .sort(
-      (a, b) => (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0)
-    )
-    .slice(0, 20);
+  return [...matched].sort(
+    // spec §6.2：最近使用 > 收藏 > 最近修改
+    (a, b) =>
+      (b.usageCount ?? 0) - (a.usageCount ?? 0) ||
+      Number(b.favorite ?? false) - Number(a.favorite ?? false) ||
+      (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0)
+  ).slice(0, 20);
 });
 
 const active = computed(() => results.value[activeIndex.value] ?? null);
@@ -180,6 +182,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
             <span class="min-w-0 flex-1">
               <span class="block truncate text-sm font-medium text-stone-800">
                 {{ e.title }}
+                <span v-if="e.favorite" class="text-[#d4a373]">★</span>
                 <span v-if="e.hasTotp" class="ml-1 text-xs text-[#8b9d77]">⏱</span>
               </span>
               <span class="block truncate text-xs text-stone-500">

@@ -12,9 +12,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-http = "2"
+tauri-plugin-autostart = "2"
 # 文件 watcher（网盘同步：外部修改自动重载/合并）；debouncer 0.7 配 notify 8
 notify = "8"
 notify-debouncer-full = "0.7"

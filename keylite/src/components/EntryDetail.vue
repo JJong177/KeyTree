@@ -26,6 +26,8 @@ const {
   historyOf,
   restoreHistory,
   refreshIcon,
+  touchUsage,
+  toggleFavorite,
 } = useVault();
 
 const revealed = ref(false);
@@ -63,6 +65,20 @@ const expiryUrgent = computed(() => (expiryDays.value ?? 0) <= 7);
 
 function copyPassword() {
   copyText(password.value);
+  if (selectedEntry.value) void touchUsage(selectedEntry.value.uuid);
+}
+
+function copyUsername() {
+  if (!selectedEntry.value) return;
+  copyText(selectedEntry.value.username, 0);
+  void touchUsage(selectedEntry.value.uuid);
+}
+
+async function toggleFav() {
+  const entry = selectedEntry.value;
+  if (!entry) return;
+  await toggleFavorite(entry.uuid);
+  toast(selectedEntry.value?.favorite ? "已收藏" : "已取消收藏");
 }
 
 async function openUrl() {
@@ -144,6 +160,14 @@ async function onRestoreHistory(index: number) {
         <div class="min-w-0 flex-1">
           <h3 class="truncate font-serif text-xl font-semibold text-stone-800">
             {{ selectedEntry.title }}
+            <button
+              class="ml-1 inline-flex align-middle text-base transition-colors duration-300"
+              :class="selectedEntry.favorite ? 'text-[#d4a373]' : 'text-stone-300 hover:text-[#d4a373]'"
+              :title="selectedEntry.favorite ? '取消收藏' : '收藏'"
+              @click="toggleFav"
+            >
+              ★
+            </button>
           </h3>
           <p class="truncate text-xs text-stone-500">
             <span
@@ -181,7 +205,7 @@ async function onRestoreHistory(index: number) {
             </div>
             <button
               class="shrink-0 rounded-full border border-stone-300 bg-white px-3 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-100"
-              @click="copyText(selectedEntry.username, 0)"
+              @click="copyUsername"
             >
               复制
             </button>

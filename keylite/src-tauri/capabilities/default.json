@@ -6,12 +6,10 @@
   "permissions": [
     "core:default",
     "dialog:default",
+    "autostart:default",
     {
       "identifier": "http:default",
-      "allow": [
-        { "url": "https://**" },
-        { "url": "http://**" }
-      ]
+      "allow": [{ "url": "https://**" }]
     }
   ]
 }

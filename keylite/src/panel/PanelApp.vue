@@ -72,7 +72,13 @@ const results = computed(() => {
       )
     : list;
   return [...matched]
-    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+    .sort(
+      // spec §6.2：最近使用 > 收藏 > 最近修改
+      (a, b) =>
+        (b.usageCount ?? 0) - (a.usageCount ?? 0) ||
+        Number(b.favorite ?? false) - Number(a.favorite ?? false) ||
+        (b.updatedAt ?? 0) - (a.updatedAt ?? 0)
+    )
     .slice(0, 20);
 });
 
@@ -329,6 +335,7 @@ onBeforeUnmount(() => {
             <span class="min-w-0 flex-1">
               <span class="block truncate text-sm font-medium text-stone-800">
                 {{ entry.title }}
+                <span v-if="entry.favorite" class="text-[#d4a373]">★</span>
                 <span v-if="entry.hasTotp" class="ml-1 text-xs text-[#8b9d77]">⏱</span>
               </span>
               <span class="block truncate text-xs text-stone-500">
