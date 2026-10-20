@@ -681,10 +681,12 @@ async function toggleFavorite(uuid: string): Promise<void> {
   if (!entry) return;
   error.value = "";
   try {
-    if (entry.customData?.get(FAVORITE_KEY)) {
+    // 旧库没有 CustomData 节点时是 undefined，必须先建 Map（?. 会静默跳过写入）
+    if (!entry.customData) entry.customData = new Map();
+    if (entry.customData.get(FAVORITE_KEY)) {
       entry.customData.delete(FAVORITE_KEY);
     } else {
-      entry.customData?.set(FAVORITE_KEY, { value: "1" });
+      entry.customData.set(FAVORITE_KEY, { value: "1" });
     }
     entry.times.update();
     rebuild();

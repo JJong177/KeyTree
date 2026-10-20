@@ -12,3 +12,4 @@ if (isPanel) {
 } else {
   createApp(App).mount("#app");
 }
+
