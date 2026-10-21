@@ -10,16 +10,127 @@ import EntryDetail from "./EntryDetail.vue";
 import EntryDrawer from "./EntryDrawer.vue";
 import SettingsModal from "./SettingsModal.vue";
 import QuickPanel from "./QuickPanel.vue";
-import logoUrl from "../../assets/logo-256.png";
+import SyncQuickBar from "./SyncQuickBar.vue";
 
 const settingsOpen = ref(false);
+const settingsInitialTab = ref<"security" | "sync">("security");
+function openSettings(tab: "security" | "sync" = "security") {
+  if (busy.value || drawer.value.open) return;
+  settingsInitialTab.value = tab; settingsOpen.value = true;
+}
 const panelOpen = ref(false);
+const searchRef = ref<HTMLInputElement | null>(null);
+/** Delete 两段式确认：第一下只提示，3 秒内再按才真删 */
+const deleteArmed = ref("");
+let deleteTimer: number | undefined;
+
+function isEditable(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  const tag = el.tagName;
+  return (
+    tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable
+  );
+}
+
+/** 上下键在可见列表里移动选中项 */
+function moveSelection(delta: number): void {
+  const list = visibleEntries.value;
+  if (!list.length) return;
+  const index = list.findIndex((e) => e.uuid === selectedUuid.value);
+  const next =
+    index < 0
+      ? delta > 0
+        ? 0
+        : list.length - 1
+      : Math.min(list.length - 1, Math.max(0, index + delta));
+  selectEntry(list[next].uuid);
+}
+
+function armDelete(): void {
+  const entry = selectedEntry.value;
+  if (!entry) return;
+  if (deleteArmed.value === entry.uuid) {
+    deleteArmed.value = "";
+    if (deleteTimer) window.clearTimeout(deleteTimer);
+    // 回收站开启时这一步只是移入回收站；关闭时才是永久删除（已由二次按键确认）
+    void removeEntry(entry.uuid);
+    return;
+  }
+  deleteArmed.value = entry.uuid;
+  toast(`再按一次 Delete 删除「${entry.title}」`, 3000);
+  if (deleteTimer) window.clearTimeout(deleteTimer);
+  deleteTimer = window.setTimeout(() => (deleteArmed.value = ""), 3000);
+}
 
 function onGlobalKeydown(event: KeyboardEvent) {
-  // Ctrl+K 呼出快速面板（全局 Alt+Space 需要系统级热键，后续用 Tauri 全局快捷键做）
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+  const mod = event.ctrlKey || event.metaKey;
+  const key = event.key.toLowerCase();
+
+  // Do not open a second overlay over an unsaved editor/settings form.
+  if (drawer.value.open || settingsOpen.value) return;
+
+  // Ctrl+K 呼出快速面板（全局 Alt+Space 由 Rust 侧注册）
+  if (mod && key === "k") {
     event.preventDefault();
     panelOpen.value = !panelOpen.value;
+    return;
+  }
+
+  // 有弹层时，页面级快捷键让位（抽屉 / 设置 / 面板自己处理按键）
+  if (drawer.value.open || settingsOpen.value || panelOpen.value) return;
+
+  if (mod && key === "f") {
+    event.preventDefault();
+    searchRef.value?.focus();
+    searchRef.value?.select();
+    return;
+  }
+  if (mod && key === "n") {
+    event.preventDefault();
+    openCreateDrawer();
+    return;
+  }
+  if (mod && key === "s") {
+    event.preventDefault();
+    void onSave();
+    return;
+  }
+  if (mod && key === "e") {
+    if (selectedEntry.value) {
+      event.preventDefault();
+      openEditDrawer(selectedEntry.value.uuid);
+    }
+    return;
+  }
+
+  // 搜索框里也允许上下键选条目（这是最顺的键盘流），其他输入框不抢键
+  const inSearch = event.target === searchRef.value;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (isEditable(event.target) && !inSearch) return;
+    event.preventDefault();
+    moveSelection(event.key === "ArrowDown" ? 1 : -1);
+    return;
+  }
+
+  if (isEditable(event.target)) return;
+
+  if (event.key === "Delete") {
+    event.preventDefault();
+    armDelete();
+    return;
+  }
+  if (event.key === "Escape") {
+    if (query.value) {
+      query.value = "";
+    } else if (document.activeElement === searchRef.value) {
+      searchRef.value?.blur();
+    }
+    return;
+  }
+  if (event.key === "/") {
+    event.preventDefault();
+    searchRef.value?.focus();
   }
 }
 
@@ -30,6 +141,11 @@ function onPanelEdit(uuid: string) {
 const {
   query,
   drawer,
+  visibleEntries,
+  selectedUuid,
+  selectedEntry,
+  selectEntry,
+  removeEntry,
   openCreateDrawer,
   openEditDrawer,
   saveVault,
@@ -37,6 +153,7 @@ const {
   error,
   status,
   busy,
+  hasUnsavedChanges,
   clearError,
   vaultInfo,
   vaultPath,
@@ -84,12 +201,24 @@ async function probeMenuHello(): Promise<void> {
 }
 
 /** 点其他库：锁当前（自动保存已兜底），解锁页会预选目标库 */
-function switchTo(vault: VaultMeta): void {
+let switchingVault = false;
+async function switchTo(vault: VaultMeta): Promise<void> {
   vaultMenuOpen.value = false;
-  if (vault.path === vaultPath.value) return;
+  if (switchingVault || vault.path === vaultPath.value) return;
+  switchingVault = true;
+  const previousPath = vaultPath.value;
+  // 解锁页挂载时需要预选目标；锁定被取消时必须还原当前库。
   settings.lastVaultPath = vault.path;
-  lock();
-  toast(`已切换到「${vault.name}」，请解锁`);
+  try {
+    if (!(await lock())) {
+      settings.lastVaultPath = previousPath;
+      toast("切换已取消，请先保存当前密码库或另存副本", 4000);
+      return;
+    }
+    toast(`已切换到「${vault.name}」，请解锁`);
+  } finally {
+    switchingVault = false;
+  }
 }
 
 function onDocPointerDown(event: MouseEvent): void {
@@ -105,6 +234,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onGlobalKeydown);
   document.removeEventListener("pointerdown", onDocPointerDown);
+  if (deleteTimer) window.clearTimeout(deleteTimer);
 });
 
 async function onSave() {
@@ -118,27 +248,24 @@ async function onSave() {
     <header
       class="flex shrink-0 flex-wrap items-center gap-3 border-b border-stone-200 bg-white px-4 py-3"
     >
-      <!-- 左上角：库切换器（logo + 当前库名，点击弹最近库列表） -->
+      <!-- 左上角：当前密码库名（点击弹最近库列表切换） -->
       <div ref="menuRef" class="relative shrink-0">
         <button
           class="flex items-center gap-2 rounded-full px-2 py-1.5 -ml-2 transition-colors duration-300 hover:bg-stone-100"
           title="切换密码库"
           @click.stop="toggleVaultMenu"
         >
-        <img :src="logoUrl" alt="KeyTree" class="h-7 w-7" />
-        <span class="font-serif text-lg font-semibold">KeyTree</span>
           <span
-            v-if="currentVaultName"
-            class="max-w-[10rem] truncate rounded-full border border-stone-200 bg-[#faf6f1] px-2.5 py-0.5 text-xs text-stone-500"
+            class="max-w-[16rem] truncate font-serif text-lg font-semibold text-stone-800"
             :title="vaultPath"
           >
-            {{ currentVaultName }}
+            {{ currentVaultName || "密码库" }}
           </span>
           <svg
             width="14"
             height="14"
             viewBox="0 0 20 20"
-            class="text-stone-400 transition-transform duration-300"
+            class="shrink-0 self-center text-stone-400 transition-transform duration-300"
             :class="vaultMenuOpen ? 'rotate-180' : ''"
           >
             <path d="M5 8 L10 13 L15 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
@@ -208,9 +335,10 @@ async function onSave() {
           <path d="M13 13 L18 18" stroke="#5c4033" stroke-width="1.5" stroke-linecap="round" />
         </svg>
         <input
+          ref="searchRef"
           v-model="query"
           class="w-full rounded-full border border-stone-200 bg-[#faf6f1] py-2 pl-10 pr-4 text-sm text-stone-800 placeholder:text-stone-400 transition-all duration-300 focus:border-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-200"
-          placeholder="搜索条目…"
+          placeholder="搜索条目…（Ctrl+F）"
         />
       </div>
 
@@ -218,7 +346,7 @@ async function onSave() {
         <button
           class="flex h-9 w-9 items-center justify-center rounded-full border border-stone-300 bg-white text-stone-600 transition-colors duration-300 hover:bg-stone-100"
           title="设置"
-          @click="settingsOpen = true"
+          @click="openSettings()" :disabled="busy || drawer.open"
         >
           <!-- lucide「settings」齿轮：圆孔 + 齿圈，跟日夜切换的太阳彻底区分 -->
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -237,18 +365,20 @@ async function onSave() {
         </button>
         <button
           class="rounded-full bg-stone-800 px-4 py-2 text-sm font-medium text-stone-50 transition-colors duration-300 hover:bg-stone-700"
-          @click="openCreateDrawer"
+          :disabled="busy" @click="openCreateDrawer"
         >
           + 新建
         </button>
         <button
           class="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm text-stone-700 transition-colors duration-300 hover:bg-stone-100"
-          @click="lock"
+          @click="lock()"
         >
           锁定
         </button>
       </div>
     </header>
+
+    <SyncQuickBar :blocked="settingsOpen || panelOpen" @configure="openSettings('sync')" />
 
     <!-- 提示条 -->
     <div
@@ -270,16 +400,30 @@ async function onSave() {
     <footer
       class="flex shrink-0 items-center justify-between gap-3 border-t border-stone-200 bg-white px-4 py-1.5 text-xs text-stone-400"
     >
-      <span class="truncate">{{ status || "本地文件模式 · 所有数据只存在这个 .kdbx 里" }}</span>
-      <span class="hidden shrink-0 md:inline">
-        <kbd class="rounded-full border border-stone-200 bg-[#faf6f1] px-1.5 py-0.5">Ctrl+K</kbd>
-        快速搜索
+      <span class="truncate">{{ hasUnsavedChanges ? "有未保存的修改 · 请保存或另存 KDBX 副本" : status || "本地优先 · 当前库修改已保存" }}</span>
+      <span class="hidden shrink-0 items-center gap-3 md:flex">
+        <span>
+          <kbd class="rounded-full border border-stone-200 bg-[#faf6f1] px-1.5 py-0.5">Ctrl+F</kbd>
+          搜索
+        </span>
+        <span>
+          <kbd class="rounded-full border border-stone-200 bg-[#faf6f1] px-1.5 py-0.5">Ctrl+N</kbd>
+          新建
+        </span>
+        <span>
+          <kbd class="rounded-full border border-stone-200 bg-[#faf6f1] px-1.5 py-0.5">Del</kbd>
+          删除
+        </span>
+        <span>
+          <kbd class="rounded-full border border-stone-200 bg-[#faf6f1] px-1.5 py-0.5">Ctrl+K</kbd>
+          快速面板
+        </span>
       </span>
       <span class="shrink-0">{{ vaultInfo.kdf }} · {{ vaultInfo.version }}</span>
     </footer>
 
+    <SettingsModal v-if="settingsOpen" :initial-tab="settingsInitialTab" @close="settingsOpen = false" />
     <EntryDrawer v-if="drawer.open" />
-    <SettingsModal v-if="settingsOpen" @close="settingsOpen = false" />
     <QuickPanel
       v-if="panelOpen"
       @close="panelOpen = false"

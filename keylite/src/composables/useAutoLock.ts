@@ -16,7 +16,7 @@ const ACTIVITY_EVENTS = [
  * 只在前端做（窗口进程活着就有效）；「系统休眠/锁屏」需要 Rust 侧事件，留到后续补。
  */
 export function useAutoLock(): void {
-  const { unlocked, lock } = useVault();
+  const { unlocked, lock, error } = useVault();
   let timer: number | undefined;
 
   function clear(): void {
@@ -32,8 +32,10 @@ export function useAutoLock(): void {
     const minutes = settings.autoLockMinutes;
     if (!minutes || minutes <= 0) return;
     timer = window.setTimeout(() => {
-      lock();
-      toast("长时间未操作，已自动锁定", 3000);
+      // 锁定会先把合并窗口里的改动落盘，完成后再提示
+      void lock({ force: true }).then((locked) => {
+        if (locked) toast(error.value || "长时间未操作，已自动锁定", error.value ? 6000 : 3000);
+      });
     }, minutes * 60_000);
   }
 

@@ -87,7 +87,9 @@ export function parseOtpauth(uri: string): TotpConfig | null {
     return null;
   }
 
-  const label = decodeURIComponent(url.pathname.replace(/^\//, ""));
+  let label: string;
+  try { label = decodeURIComponent(url.pathname.replace(/^\//, "")); } catch { return null; }
+  if (!secret.length) return null;
   const [labelIssuer, ...rest] = label.split(":");
   const account = (rest.length ? rest.join(":") : label).trim();
   const steam = kind === "steam";
@@ -96,10 +98,10 @@ export function parseOtpauth(uri: string): TotpConfig | null {
 
   return {
     secret,
-    period: Number.isFinite(periodRaw) && periodRaw > 0 ? periodRaw : 30,
+    period: Number.isInteger(periodRaw) && periodRaw > 0 && periodRaw <= 86400 ? periodRaw : 30,
     digits: steam
       ? 5
-      : Number.isFinite(digitsRaw) && digitsRaw >= 4 && digitsRaw <= 10
+      : Number.isInteger(digitsRaw) && digitsRaw >= 4 && digitsRaw <= 10
         ? digitsRaw
         : 6,
     algorithm: normalizeAlgorithm(url.searchParams.get("algorithm")),
@@ -128,14 +130,14 @@ export function parseLegacyTotp(
   if (settings) {
     const [periodRaw, digitsRaw] = settings.split(";");
     const p = Number(periodRaw);
-    if (Number.isFinite(p) && p > 0) period = p;
+    if (Number.isInteger(p) && p > 0 && p <= 86400) period = p;
     const d = (digitsRaw ?? "").trim().toUpperCase();
     if (d === "S") {
       steam = true;
       digits = 5;
     } else {
       const n = Number(d);
-      if (Number.isFinite(n) && n >= 4 && n <= 10) digits = n;
+      if (Number.isInteger(n) && n >= 4 && n <= 10) digits = n;
     }
   }
 
@@ -146,6 +148,7 @@ export function parseLegacyTotp(
     return null;
   }
 
+  if (!secret.length) return null;
   return {
     secret,
     period,
@@ -155,6 +158,18 @@ export function parseLegacyTotp(
     issuer: "",
     account: "",
   };
+}
+
+/** 表单和库读取必须接受同一格式，避免 Base32 保存成功却无法生成。 */
+export function parseTotpInput(raw: string): TotpConfig | null {
+  return /^otpauth:\/\//i.test(raw.trim()) ? parseOtpauth(raw) : parseLegacyTotp(raw);
+}
+export function normalizeTotpInput(raw: string): string {
+  const value = raw.trim();
+  if (!value) return "";
+  if (!parseTotpInput(value)) throw new Error("TOTP 密钥无法识别");
+  if (/^otpauth:\/\//i.test(value)) return value;
+  return `otpauth://totp/KeyTree?secret=${encodeURIComponent(value.replace(/[\s-]/g, "").replace(/=+$/g, "").toUpperCase())}`;
 }
 
 /** 当前周期还剩几秒（用于倒计时环） */

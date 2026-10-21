@@ -1,40 +1,97 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useDialogFocus } from "../composables/useDialogFocus";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartEnabled } from "@tauri-apps/plugin-autostart";
 import { useVault } from "../composables/useVault";
 import { settings } from "../lib/settings";
 import { toast } from "../lib/toast";
+import ImportPreview from "./ImportPreview.vue";
+import ShortcutSettings from "./ShortcutSettings.vue";
+import VaultReport from "./VaultReport.vue";
+import AuditTimeline from "./AuditTimeline.vue";
+import MasterPasswordHintSettings from "./MasterPasswordHintSettings.vue";
+import WebdavSettings from "./WebdavSettings.vue";
+import BackupSnapshots from "./BackupSnapshots.vue";
 
+const props = withDefaults(defineProps<{ initialTab?: "security" | "convenience" | "data" | "health" | "audit" | "sync" | "about" }>(), { initialTab: "security" });
 const emit = defineEmits<{ close: [] }>();
 
-function onKeydown(e: KeyboardEvent) {
-  if (e.key === "Escape") emit("close");
+const dialogRoot = ref<HTMLElement | null>(null);
+const settingsScroll = ref<HTMLElement | null>(null);
+const working = ref(false);
+const confirmDiscard = ref(false);
+const hintDirty = ref(false);
+const webdavDirty = ref(false), webdavWorking = ref(false), backupWorking = ref(false);
+useDialogFocus(dialogRoot, () => { if (confirmDiscard.value) confirmDiscard.value = false; else requestClose(); });
+function requestClose() {
+  if (busy.value || working.value || webdavWorking.value || backupWorking.value) return;
+  if (currentPw.value || newPw.value || confirmPw.value || hintDirty.value || webdavDirty.value) {
+    confirmDiscard.value = true;
+    void nextTick(() => dialogRoot.value?.querySelector<HTMLElement>("[data-continue-editing]")?.focus());
+    return;
+  }
+  emit("close");
 }
-onMounted(() => window.addEventListener("keydown", onKeydown));
-onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
+async function runAction(action: () => Promise<void>) {
+  if (working.value || busy.value || webdavWorking.value || backupWorking.value) return;
+  working.value = true;
+  try { await action(); } catch { say("操作未完成，请重试", "err"); }
+  finally { working.value = false; }
+}
+onBeforeUnmount(() => { cancelImport(); });
 
 const {
   vaultPath,
   vaultInfo,
+  drawer,
   hasKeyFile,
   changeMasterPassword,
   applyKeyFile,
   createKeyFile,
   exportKdbx,
   exportCsv,
-  importCsv,
+  previewCsv,
+  importPreview,
+  cancelImport,
+  backupInfoOf,
   error,
   busy,
 } = useVault();
 
-const tab = ref<"security" | "convenience" | "data" | "about">("security");
+/** 滚动备份信息（数据 tab 展示，让 .bak 不是隐形功能） */
+const backupInfo = ref({ exists: false, mtimeMs: 0, size: 0 });
+const backupName = computed(() => {
+  const file = vaultPath.value.split(/[\\/]/).pop() ?? "vault.kdbx";
+  return `${file}.bak`;
+});
+const backupText = computed(() => {
+  const b = backupInfo.value;
+  if (!b.exists) return "";
+  return `${new Date(b.mtimeMs).toLocaleString("zh-CN", { hour12: false })} · ${Math.max(
+    1,
+    Math.round(b.size / 1024)
+  )} KB`;
+});
+
+async function refreshBackupInfo(): Promise<void> {
+  backupInfo.value = vaultPath.value
+    ? await backupInfoOf(vaultPath.value)
+    : { exists: false, mtimeMs: 0, size: 0 };
+}
+
+const tab = ref<"security" | "convenience" | "data" | "health" | "audit" | "sync" | "about">(props.initialTab);
+
+watch(tab, () => { if (settingsScroll.value) settingsScroll.value.scrollTop = 0; }, { flush: "post" });
 
 const tabs = [
   { key: "security", label: "安全" },
   { key: "convenience", label: "便利" },
   { key: "data", label: "数据" },
+  { key: "sync", label: "同步" },
+  { key: "health", label: "库体检" },
+  { key: "audit", label: "时间线" },
   { key: "about", label: "关于" },
 ] as const;
 
@@ -51,6 +108,7 @@ const helloText = ref("检测中…");
 const confirmClearQuick = ref(false);
 
 onMounted(async () => {
+  void refreshBackupInfo();
   try {
     const s = await invoke<string>("hello_status");
     helloText.value =
@@ -96,7 +154,8 @@ watch(
   }
 );
 
-async function clearQuickUnlock() {
+function clearQuickUnlock() { return runAction(clearQuickUnlockAction); }
+async function clearQuickUnlockAction() {
   if (!confirmClearQuick.value) {
     confirmClearQuick.value = true;
     window.setTimeout(() => (confirmClearQuick.value = false), 4000);
@@ -115,7 +174,8 @@ async function clearQuickUnlock() {
 const confirmCsvExport = ref(false);
 const importing = ref(false);
 
-async function doExportKdbx() {
+function doExportKdbx() { return runAction(doExportKdbxAction); }
+async function doExportKdbxAction() {
   message.value = "";
   const target = await save({
     defaultPath: "vault-backup.kdbx",
@@ -131,7 +191,8 @@ async function doExportKdbx() {
   }
 }
 
-async function doExportCsv() {
+function doExportCsv() { return runAction(doExportCsvAction); }
+async function doExportCsvAction() {
   message.value = "";
   // 双确认：CSV 是明文密码，spec §5 要求防止手滑导出
   if (!confirmCsvExport.value) {
@@ -154,7 +215,8 @@ async function doExportCsv() {
   }
 }
 
-async function doImportCsv() {
+function doImportCsv() { return runAction(doImportCsvAction); }
+async function doImportCsvAction() {
   message.value = "";
   if (importing.value) return;
   let picked: string | null = null;
@@ -170,13 +232,7 @@ async function doImportCsv() {
   if (!picked) return;
   importing.value = true;
   try {
-    const n = await importCsv(picked);
-    if (n > 0) {
-      say(`已从 CSV 导入 ${n} 条（Chrome/KeePassXC 格式自动识别）`, "ok");
-      toast(`已导入 ${n} 条`);
-    } else {
-      say(error.value || "没有导入任何条目", "err");
-    }
+    if (!(await previewCsv(picked))) say(error.value || "预览失败", "err");
   } finally {
     importing.value = false;
   }
@@ -187,7 +243,8 @@ function say(text: string, kind: "ok" | "err" = "ok") {
   messageKind.value = kind;
 }
 
-async function submitPassword() {
+function submitPassword() { return runAction(submitPasswordAction); }
+async function submitPasswordAction() {
   message.value = "";
   if (!currentPw.value) return say("请输入当前主密码", "err");
   if (newPw.value.length < 8) return say("新主密码至少 8 位", "err");
@@ -205,7 +262,8 @@ async function submitPassword() {
   }
 }
 
-async function pickKeyFile() {
+function pickKeyFile() { return runAction(pickKeyFileAction); }
+async function pickKeyFileAction() {
   message.value = "";
   try {
     const picked = await open({ multiple: false });
@@ -223,7 +281,8 @@ async function pickKeyFile() {
   }
 }
 
-async function generateKeyFile() {
+function generateKeyFile() { return runAction(generateKeyFileAction); }
+async function generateKeyFileAction() {
   message.value = "";
   const target = await save({
     defaultPath: "keytree.keyx",
@@ -239,7 +298,8 @@ async function generateKeyFile() {
   }
 }
 
-async function removeKeyFile() {
+function removeKeyFile() { return runAction(removeKeyFileAction); }
+async function removeKeyFileAction() {
   if (!confirmRemoveKey.value) {
     confirmRemoveKey.value = true;
     window.setTimeout(() => (confirmRemoveKey.value = false), 4000);
@@ -274,22 +334,31 @@ const clipboardOptions = [
 </script>
 
 <template>
-  <div class="fixed inset-0 z-40 flex items-center justify-center bg-stone-800/20 p-4">
+  <div ref="dialogRoot" :inert="drawer.open" role="dialog" aria-modal="true" aria-label="设置" tabindex="-1" :aria-busy="working || busy || webdavWorking || backupWorking" class="fixed inset-0 z-40 flex items-center justify-center bg-stone-800/20 p-4">
+    <div v-if="confirmDiscard" data-dialog-confirmation class="absolute inset-0 z-10 flex items-center justify-center bg-stone-800/30 p-6">
+      <div class="rounded-2xl bg-[#faf6f1] p-6 text-sm" role="alert">
+        <p>有尚未保存的修改，要放弃吗？</p>
+        <div class="mt-4 flex flex-wrap gap-3">
+          <button data-continue-editing class="rounded-full bg-stone-800 px-4 py-2 text-white" @click="confirmDiscard = false">继续编辑</button>
+          <button class="rounded-full border px-4 py-2" :disabled="working || busy || webdavWorking || backupWorking" @click="emit('close')">放弃修改</button>
+        </div>
+      </div>
+    </div>
     <div
-      class="flex max-h-full w-full max-w-xl flex-col overflow-hidden rounded-[2rem] border border-stone-200 bg-[#faf6f1]"
+      class="flex max-h-full min-h-0 w-full max-w-xl flex-col overflow-hidden rounded-[2rem] border border-stone-200 bg-[#faf6f1]"
     >
-      <div class="flex items-center justify-between border-b border-stone-200 px-6 py-4">
+      <div class="flex shrink-0 items-center justify-between border-b border-stone-200 px-6 py-4">
         <h3 class="font-serif text-xl font-semibold text-stone-800">设置</h3>
         <button
           class="flex h-9 w-9 items-center justify-center rounded-full border border-stone-300 bg-white text-stone-700 transition-colors duration-300 hover:bg-stone-100"
-          @click="emit('close')"
+          @click="requestClose" :disabled="busy || working || webdavWorking || backupWorking"
         >
           ✕
         </button>
       </div>
 
       <!-- tab -->
-      <div class="flex gap-1 border-b border-stone-200 px-6 py-3">
+      <div :inert="confirmDiscard" class="flex shrink-0 flex-wrap gap-1 border-b border-stone-200 px-6 py-3">
         <button
           v-for="item in tabs"
           :key="item.key"
@@ -305,10 +374,45 @@ const clipboardOptions = [
         </button>
       </div>
 
-      <div class="flex-1 overflow-y-auto px-6 py-5">
+      <div ref="settingsScroll" data-settings-scroll class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+        <fieldset :disabled="working || busy || webdavWorking || backupWorking" :inert="confirmDiscard" class="min-w-0">
+        <div v-show="tab === 'sync'">
+          <WebdavSettings @dirty="webdavDirty = $event" @working="webdavWorking = $event" />
+        </div>
         <!-- 安全 -->
-        <div v-if="tab === 'security'" class="space-y-6">
+        <div v-show="tab === 'security'" class="space-y-6">
+          <MasterPasswordHintSettings @dirty="hintDirty = $event" />
           <section>
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <h4 class="font-serif text-sm font-semibold text-stone-800">截图时隐藏窗口</h4>
+                <p class="mt-1 text-xs text-stone-500">
+                  隐藏主窗口和快速面板；远程桌面显示异常时可关闭。
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="settings.screenshotProtection"
+                class="relative mt-0.5 h-6 w-11 shrink-0 rounded-full border transition-colors duration-300"
+                :class="
+                  settings.screenshotProtection
+                    ? 'border-[#8b9d77] bg-[#8b9d77]'
+                    : 'border-stone-300 bg-stone-200'
+                "
+                @click="settings.screenshotProtection = !settings.screenshotProtection"
+              >
+                <span
+                  class="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-all duration-300"
+                  :class="
+                    settings.screenshotProtection ? 'left-[23px]' : 'left-[3px]'
+                  "
+                />
+              </button>
+            </div>
+          </section>
+
+          <section class="border-t border-stone-200 pt-5">
             <h4 class="mb-2 font-serif text-sm font-semibold text-stone-800">修改主密码</h4>
             <div class="space-y-2">
               <input
@@ -332,11 +436,11 @@ const clipboardOptions = [
               />
             </div>
             <p class="mt-2 text-xs text-stone-500">
-              改完会用新密码重新加密整个库文件；旧密码立即失效，且无法找回。
+              新密码无法找回，请妥善保管。
             </p>
             <button
               class="mt-3 rounded-full bg-stone-800 px-5 py-2 text-sm font-medium text-stone-50 transition-colors duration-300 hover:bg-stone-700 disabled:opacity-50"
-              :disabled="busy"
+              :disabled="busy || working || webdavWorking || backupWorking"
               @click="submitPassword"
             >
               修改主密码
@@ -379,7 +483,7 @@ const clipboardOptions = [
               </button>
             </div>
             <p class="mt-2 text-xs text-[#8b2332]">
-              丢失密钥文件 + 主密码 = 库永久打不开。启用后请立刻备份。
+              请备份密钥文件，丢失后将无法解锁。
             </p>
           </section>
 
@@ -397,11 +501,8 @@ const clipboardOptions = [
                 class="mt-0.5 h-4 w-4"
               />
               <span>
-                解锁成功后在本机缓存加密的凭据副本，之后可用指纹 / PIN 快速解锁
-                <span class="block text-xs text-stone-400">
-                  副本用 Windows DPAPI 绑定当前账户加密；改主密码自动更新，
-                  换密钥文件 / 退出应用即清除
-                </span>
+                启用指纹 / 人脸 / PIN 解锁
+                <span class="block text-xs text-stone-400">凭据仅在本机加密缓存，退出后清除。</span>
               </span>
             </label>
             <button
@@ -413,7 +514,7 @@ const clipboardOptions = [
               "
               @click="clearQuickUnlock"
             >
-              {{ confirmClearQuick ? "再点一次确认清除" : "清除本机缓存的解锁密钥" }}
+              {{ confirmClearQuick ? "再点一次确认清除" : "清除本机解锁缓存" }}
             </button>
           </section>
 
@@ -431,7 +532,8 @@ const clipboardOptions = [
         </div>
 
         <!-- 便利 -->
-        <div v-else-if="tab === 'convenience'" class="space-y-5">
+        <div v-if="tab === 'convenience'" class="space-y-5">
+          <ShortcutSettings />
           <div class="border-b border-stone-200 pb-5">
             <label class="mb-1 flex items-center gap-2 text-sm font-medium text-stone-700">
               <input
@@ -442,20 +544,20 @@ const clipboardOptions = [
               开机自动启动 KeyTree
             </label>
             <p class="mt-1 text-xs text-stone-400">
-              登录 Windows 后自动在后台运行；库仍处于锁定状态，解锁后才可见
+              登录后后台运行，密码库保持锁定。
             </p>
           </div>
           <div class="border-b border-stone-200 pb-5">
             <label class="mb-1 flex items-center gap-2 text-sm font-medium text-stone-700">
               <input
-                v-model="settings.screenshotProtection"
+                v-model="settings.autoHelloUnlock"
                 type="checkbox"
                 class="h-4 w-4"
               />
-              窗口防截屏
+              启动时自动用 Windows Hello 解锁上次的库
             </label>
             <p class="mt-1 text-xs text-stone-400">
-              开启后截图 / 录屏里 KeyTree 窗口不会被捕获（远程桌面显示异常时可关闭）
+              需先启用快速解锁；手动锁定后不会自动弹出。
             </p>
           </div>
           <div>
@@ -468,9 +570,6 @@ const clipboardOptions = [
                 {{ o.label }}
               </option>
             </select>
-            <p class="mt-1 text-xs text-stone-400">
-              有键鼠输入就重新计时；锁定后内存里的库会被清空
-            </p>
           </div>
 
           <div>
@@ -486,7 +585,7 @@ const clipboardOptions = [
               </option>
             </select>
             <p class="mt-1 text-xs text-stone-400">
-              只清空我们自己复制的内容，检测到剪贴板已被你换掉就不动它
+              仅清理 KeyTree 复制的内容，不影响后来复制的内容。
             </p>
           </div>
         </div>
@@ -494,15 +593,29 @@ const clipboardOptions = [
         <!-- 数据 -->
         <div v-else-if="tab === 'data'" class="space-y-6">
           <section>
+            <h4 class="mb-2 font-serif text-sm font-semibold text-stone-800">滚动备份</h4>
+            <p class="mb-2 text-xs text-stone-500">
+              上一版自动保存为 <code class="rounded bg-white px-1 py-0.5 text-[11px]">{{ backupName }}</code>，可在解锁页恢复。
+            </p>
+            <p v-if="backupInfo.exists" class="text-xs text-[#5c4033]">
+              当前备份：{{ backupText }}
+            </p>
+            <p v-else class="text-xs text-stone-400">
+              暂无备份，下次保存已有库时生成。
+            </p>
+          </section>
+
+          <BackupSnapshots @working="backupWorking = $event" />
+
+          <section class="border-t border-stone-200 pt-5">
             <h4 class="mb-2 font-serif text-sm font-semibold text-stone-800">导出</h4>
             <p class="mb-3 text-xs text-stone-500">
-              KDBX 副本是完整加密备份（含分组、历史、回收站、站点图标）；
-              CSV 里的密码是<span class="font-medium text-[#8b2332]">明文</span>，只用于迁移到浏览器或其他工具。
+              KDBX 为完整加密副本；CSV 含<span class="font-medium text-[#8b2332]">明文密码</span>，仅用于迁移。
             </p>
             <div class="flex flex-wrap gap-2">
               <button
                 class="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-100"
-                :disabled="busy"
+                :disabled="busy || working || webdavWorking || backupWorking"
                 @click="doExportKdbx"
               >
                 另存 KDBX 副本
@@ -514,31 +627,31 @@ const clipboardOptions = [
                     ? 'border-[#8b2332] bg-[#8b2332] text-white'
                     : 'border-stone-300 bg-white text-[#8b2332] hover:bg-[#8b2332]/10'
                 "
-                :disabled="busy"
+                :disabled="busy || working || webdavWorking || backupWorking"
                 @click="doExportCsv"
               >
                 {{ confirmCsvExport ? "明文警告：再点一次确认导出" : "导出 CSV（明文）" }}
               </button>
             </div>
             <p v-if="confirmCsvExport" class="mt-2 text-xs text-[#8b2332]">
-              CSV 包含全部明文密码，迁移完成后请立即删除，不要上传网盘或发给别人。
+              CSV 含明文密码，请勿分享或上传，迁移后及时删除。
             </p>
           </section>
 
           <section class="border-t border-stone-200 pt-5">
             <h4 class="mb-2 font-serif text-sm font-semibold text-stone-800">导入</h4>
             <p class="mb-3 text-xs text-stone-500">
-              支持 Chrome / Edge 导出的密码 CSV，也支持 KeePassXC 格式（Group 列会自动按层级建组）。
-              只新增条目，不动现有数据；表头自动识别。
+              支持 Chrome、Edge、KeePassXC 的 CSV；预览确认后仅新增，不覆盖已有条目。
             </p>
             <button
               class="rounded-full bg-stone-800 px-4 py-2 text-xs font-medium text-stone-50 transition-colors duration-300 hover:bg-stone-700 disabled:opacity-50"
               :disabled="importing"
               @click="doImportCsv"
             >
-              {{ importing ? "导入中…" : "选择 CSV 文件导入" }}
+              {{ importing ? "分析中…" : "选择 CSV，先预览" }}
             </button>
           </section>
+          <ImportPreview v-if="importPreview.length" />
 
           <p
             v-if="message"
@@ -553,8 +666,10 @@ const clipboardOptions = [
           </p>
         </div>
 
+        <VaultReport v-else-if="tab === 'health'" />
+        <AuditTimeline v-else-if="tab === 'audit'" />
         <!-- 关于 -->
-        <div v-else class="space-y-3 text-sm text-stone-700">
+        <div v-else-if="tab === 'about'" class="space-y-3 text-sm text-stone-700">
           <div class="flex items-start justify-between gap-4">
             <span class="text-stone-500">库文件</span>
             <span class="max-w-[70%] break-all text-right text-xs">{{ vaultPath }}</span>
@@ -563,14 +678,12 @@ const clipboardOptions = [
             <span class="text-stone-500">加密</span>
             <span>{{ vaultInfo.kdf }} · {{ vaultInfo.version }}</span>
           </div>
-          <div class="flex items-center justify-between">
-            <span class="text-stone-500">KeyTree</span>
-            <span>0.1.0（M1/M2 开发中）</span>
-          </div>
+          <div class="font-medium text-stone-800">KeyTree</div>
           <p class="border-t border-stone-200 pt-3 text-xs text-stone-400">
-            密码数据只存在这个 .kdbx 文件里，KeyTree 没有任何云端服务。
+            本地优先，仅手动 WebDAV 同步时上传库文件。
           </p>
         </div>
+        </fieldset>
       </div>
     </div>
   </div>

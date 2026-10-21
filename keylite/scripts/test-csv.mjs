@@ -72,7 +72,7 @@ const out = buildChromeCsv([
 ]);
 check(
   "生成转义",
-  out.includes('"we""ird, title"') && out.includes('"multi\nline"') && out.startsWith("name,url,username,password\r\n"),
+  out.includes('"we""ird, title"') && out.includes('"multi\nline"') && out.startsWith("name,url,username,password,note\r\n"),
   JSON.stringify(out)
 );
 

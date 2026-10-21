@@ -111,16 +111,16 @@ export function detectColumns(header: string[]): CsvColumns | null {
 }
 
 /** 生成 Chrome/Edge 导入格式的 CSV（name,url,username,password） */
-export function buildChromeCsv(rows: Array<{ title: string; url: string; username: string; password: string }>): string {
+export function buildChromeCsv(rows: Array<{ title: string; url: string; username: string; password: string; notes?: string }>): string {
   const escape = (v: string): string => {
     const s = (v ?? "").toString();
     // 包含逗号/引号/换行才加引号，和 Chrome 导出行为一致
     if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
     return s;
   };
-  const lines = ["name,url,username,password"];
+  const lines = ["name,url,username,password,note"];
   for (const r of rows) {
-    lines.push([r.title, r.url, r.username, r.password].map(escape).join(","));
+    lines.push([r.title, r.url, r.username, r.password, r.notes ?? ""].map(escape).join(","));
   }
   return lines.join("\r\n") + "\r\n";
 }

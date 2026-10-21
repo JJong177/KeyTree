@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-http = "2"
 tauri-plugin-autostart = "2"
@@ -25,13 +25,17 @@ tauri-plugin-global-shortcut = "2"
 enigo = "0.6.1"
 # Windows Hello（UserConsentVerifier，WinRT）
 windows = { version = "0.61", features = ["Security_Credentials_UI", "Win32_System_WinRT"] }
-# DPAPI / 锁屏通知 / 电源事件 / 防截屏 / 消息窗口
+# DPAPI / 锁屏通知 / 电源事件 / 防截屏 / 消息窗口 / 剪贴板
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
+    # InvalidateRect / UpdateWindow（切换防截屏后强制重绘）
+    "Win32_Graphics_Gdi",
     "Win32_Security_Cryptography",
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Memory",
+    # OpenClipboard / SetClipboardData / RegisterClipboardFormatW
+    "Win32_System_DataExchange",
     "Win32_System_RemoteDesktop",
     "Win32_System_Power",
     "Win32_System_LibraryLoader",

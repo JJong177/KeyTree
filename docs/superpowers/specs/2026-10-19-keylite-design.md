@@ -218,7 +218,7 @@ SSH Agent、Secret Service、KeeShare、Passkeys、CLI、插件系统、自有�
 | 自动锁定 | 空闲（默认 5min）/ Windows 锁屏 / 系统休眠，任一触发 |
 | 防截屏 | 主窗口与快速面板默认开启 `SetThreadDisplayAffinity`（Tauri 插件提供），可关 |
 | 原子写入 | 保存 = 写 `*.kdbx.tmp` → fsync → rename 替换；任何中断不损坏原库 |
-| 备份 | 每次成功打开库时滚动维护 `*.kdbx.bak`（保留上一版）；损坏库的恢复路径写进错误提示 |
+| 备份 | 每次保存前，把磁盘上的上一版滚到 `*.kdbx.bak`（只保留一版）；仅在「磁盘旧文件 + 新内容都是合法 KDBX」时备份，避免给明文 CSV / 密钥文件留副本，也避免用损坏文件覆盖好备份。恢复入口在解锁页（非密码错的失败才显示），原文件改名 `.corrupt-时间戳` 留证 |
 | 数据库默认参数 | KDBX 4.1 + Argon2id（64MB / 2 迭代）+ ChaCha20，与 KeePassXC 默认一致 |
 
 ### 7.1 Quick Unlock（Windows Hello 快速解锁）详解

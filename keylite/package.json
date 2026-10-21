@@ -7,6 +7,10 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
+    "test:vault-save": "node scripts/test-vault-save.mjs",
+    "test:features": "node scripts/test-features.mjs",
+    "test:hint": "node scripts/test-master-password-hint.mjs",
+    "test": "node scripts/test-features.mjs && node scripts/test-master-password-hint.mjs && node scripts/test-vault-save.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

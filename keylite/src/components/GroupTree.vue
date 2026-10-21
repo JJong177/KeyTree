@@ -160,7 +160,7 @@ const vaultName = () => {
             @click="selectGroup(g.uuid)"
           >
             <span class="flex min-w-0 items-center gap-2">
-              <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-[#d4a373]" />
+              <span class="shrink-0 rounded-full bg-[#d4a373] transition-all duration-300" :style="{ width: `${5 + Math.min(7, Math.log2(g.count + 1))}px`, height: `${5 + Math.min(7, Math.log2(g.count + 1))}px`, opacity: .4 + Math.min(.6, Math.log2(g.count + 1) / 8) }" aria-hidden="true" />
               <span class="truncate">{{ g.name }}</span>
             </span>
             <span

@@ -2,16 +2,25 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { copyText } from "../lib/clipboard";
+import { copyText, useClipboardStatus } from "../lib/clipboard";
 import { toast } from "../lib/toast";
-import { initialOf, relativeTime, toneOf } from "../lib/format";
+import { relativeTime } from "../lib/format";
+import { searchEntries } from "../lib/search";
+import EntryAvatar from "../components/EntryAvatar.vue";
+import EmptyState from "../components/EmptyState.vue";
+import MatchText from "../components/MatchText.vue";
+import MatchContext from "../components/MatchContext.vue";
+import TotpCountdown from "../components/TotpCountdown.vue";
 import {
   PANEL_OPENED_EVENT,
   PANEL_REQUEST_EVENT,
   PANEL_RESPONSE_EVENT,
   type PanelEntry,
   type PanelResponse,
+  type CopyAction,
 } from "../lib/panel";
+
+useClipboardStatus();
 
 const query = ref("");
 const entries = ref<PanelEntry[]>([]);
@@ -22,7 +31,9 @@ const showActions = ref(false);
 const actionIndex = ref(-1);
 const inputRef = ref<HTMLInputElement | null>(null);
 /** 发起复制后等主窗口回话时，记住要做的事 */
-const pending = ref<"" | "password" | "totp">("");
+const pending = ref("");
+const session = ref(0);
+function resetPending() { pending.value = ""; }
 
 const listeners: UnlistenFn[] = [];
 
@@ -43,10 +54,7 @@ const actions = computed<PanelAction[]>(() => {
     list.push({
       key: "copy-username",
       label: "复制用户名",
-      run: () => {
-        copyText(entry.username, 0);
-        hide();
-      },
+      run: () => { void requestCopy("username"); },
     });
   }
   if (entry.hasTotp) {
@@ -60,31 +68,12 @@ const actions = computed<PanelAction[]>(() => {
   return list;
 });
 
-const results = computed(() => {
-  const q = query.value.trim().toLowerCase();
-  const list = entries.value;
-  const matched = q
-    ? list.filter((entry) =>
-        [entry.title, entry.username, entry.url, ...entry.tags]
-          .join("\n")
-          .toLowerCase()
-          .includes(q)
-      )
-    : list;
-  return [...matched]
-    .sort(
-      // spec §6.2：最近使用 > 收藏 > 最近修改
-      (a, b) =>
-        (b.usageCount ?? 0) - (a.usageCount ?? 0) ||
-        Number(b.favorite ?? false) - Number(a.favorite ?? false) ||
-        (b.updatedAt ?? 0) - (a.updatedAt ?? 0)
-    )
-    .slice(0, 20);
-});
+const results = computed(() => searchEntries(entries.value, query.value).slice(0, 20));
 
 const active = computed(() => results.value[activeIndex.value] ?? null);
 
 function hide() {
+  resetPending();
   void invoke("hide_panel");
 }
 
@@ -129,31 +118,26 @@ function resetToSearch() {
   actionIndex.value = -1;
 }
 
-async function copyPassword() {
-  if (!active.value) return;
-  pending.value = "password";
-  await emit(PANEL_REQUEST_EVENT, {
-    kind: "copy-password",
-    id: active.value.id,
-  });
+async function requestCopy(action: CopyAction) {
+  if (!active.value || !unlocked.value || pending.value) return;
+  const requestId = crypto.randomUUID(); pending.value = requestId;
+  try { await emit(PANEL_REQUEST_EVENT, { kind: "copy", action, id: active.value.id, requestId, session: session.value }); }
+  catch { resetPending(); toast("复制请求失败"); }
+  window.setTimeout(() => { if (pending.value === requestId) { resetPending(); toast("请求超时，请重试"); } }, 5000);
 }
-
-async function copyTotp() {
-  if (!active.value) return;
-  pending.value = "totp";
-  await emit(PANEL_REQUEST_EVENT, { kind: "copy-totp", id: active.value.id });
-}
+async function copyPassword() { await requestCopy("password"); }
+async function copyTotp() { await requestCopy("totp"); }
 
 async function focusInMain() {
   if (!active.value) return;
-  await emit(PANEL_REQUEST_EVENT, { kind: "focus", id: active.value.id });
+  await emit(PANEL_REQUEST_EVENT, { kind: "focus", id: active.value.id, session: session.value });
   hide();
 }
 
 async function autoTypeEntry() {
   if (!active.value) return;
   // 面板由 Rust 侧收起并把焦点还给上一个前台窗口，这里不抢着 hide
-  await emit(PANEL_REQUEST_EVENT, { kind: "auto-type", id: active.value.id });
+  await emit(PANEL_REQUEST_EVENT, { kind: "auto-type", id: active.value.id, session: session.value });
 }
 
 function openUrl() {
@@ -167,30 +151,24 @@ function openUrl() {
     .catch((e) => toast(typeof e === "string" ? e : "打开链接失败"));
 }
 
-function onResponse(payload: PanelResponse) {
+async function onResponse(payload: PanelResponse) {
   if (payload.kind === "state") {
-    unlocked.value = payload.unlocked;
-    entries.value = payload.entries;
+    if (payload.session < session.value) return;
+    if (session.value !== payload.session || !payload.unlocked) resetPending();
+    session.value = payload.session; unlocked.value = payload.unlocked;
+    entries.value = payload.unlocked ? payload.entries : [];
+    if (!payload.unlocked) { query.value = ""; showActions.value = false; }
     if (activeIndex.value >= results.value.length) activeIndex.value = 0;
     return;
   }
-
-  if (payload.kind === "password" && pending.value === "password") {
-    pending.value = "";
-    if (!payload.value) {
-      toast("这条没有密码");
-      return;
-    }
-    copyText(payload.value, (payload.ttl || 30) * 1000);
-    hide();
-    return;
-  }
-
-  if (payload.kind === "totp" && pending.value === "totp") {
-    pending.value = "";
-    copyText(payload.code, Math.max(1, payload.remaining) * 1000);
-    hide();
-  }
+  if (payload.kind === "notice") { toast(payload.message); return; }
+  if (payload.kind !== "copy" || !unlocked.value || payload.session !== session.value || payload.requestId !== pending.value) return;
+  resetPending();
+  if (!payload.value) { toast("这条没有可复制的内容"); return; }
+  const copied = await copyText(payload.value, payload.ttl * 1000);
+  if (!copied || !unlocked.value || payload.session !== session.value) return;
+  await emit(PANEL_REQUEST_EVENT, { kind: "copied", id: payload.id, requestId: payload.requestId, session: payload.session });
+  hide();
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -244,7 +222,7 @@ function onKeydown(event: KeyboardEvent) {
 onMounted(async () => {
   listeners.push(
     await listen<PanelResponse>(PANEL_RESPONSE_EVENT, (event) =>
-      onResponse(event.payload)
+      void onResponse(event.payload).catch(() => toast("快速访问操作失败，请重试"))
     )
   );
   listeners.push(
@@ -326,20 +304,16 @@ onBeforeUnmount(() => {
             @mouseenter="activeIndex = index"
             @click="activeIndex = index; copyPassword()"
           >
-            <span
-              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-stone-300 text-sm font-semibold text-stone-800"
-              :class="toneOf(entry.title) === 'sage' ? 'bg-[#8b9d77]/30' : 'bg-[#d4a373]/30'"
-            >
-              {{ initialOf(entry.title) }}
-            </span>
+            <EntryAvatar :title="entry.title" :icon="entry.icon" :size="32" />
             <span class="min-w-0 flex-1">
               <span class="block truncate text-sm font-medium text-stone-800">
-                {{ entry.title }}
+                <MatchText :text="entry.title" :query="query" />
                 <span v-if="entry.favorite" class="text-[#d4a373]">★</span>
-                <span v-if="entry.hasTotp" class="ml-1 text-xs text-[#8b9d77]">⏱</span>
+                <TotpCountdown v-if="entry.totpPeriod" :period="entry.totpPeriod" />
               </span>
               <span class="block truncate text-xs text-stone-500">
-                {{ entry.username || entry.url || "—" }}
+                <MatchText :text="entry.username || entry.url || '—'" :query="query" />
+              <MatchContext :entry="entry" :query="query" />
               </span>
             </span>
             <span class="shrink-0 text-[11px] text-stone-400">
@@ -349,7 +323,7 @@ onBeforeUnmount(() => {
         </li>
 
         <li v-if="!results.length" class="px-4 py-10 text-center text-sm text-stone-400">
-          没有匹配的条目
+          <EmptyState kind="search" title="没有找到匹配条目" description="试试更短的关键词，或先在主窗口添加条目。" />
         </li>
       </ul>
 

@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useVault } from "../composables/useVault";
 import type { EntryVM } from "../composables/useVault";
-import { daysUntil, initialOf, relativeTime, toneOf } from "../lib/format";
+import { daysUntil, relativeTime } from "../lib/format";
 
+import EntryAvatar from "./EntryAvatar.vue";
+import EmptyState from "./EmptyState.vue";
+import MatchText from "./MatchText.vue";
+import MatchContext from "./MatchContext.vue";
 const {
   visibleEntries,
   selectedUuid,
   selectedGroup,
   selectEntry,
   sortMode,
+  favoritesOnly,
+  openCreateDrawer,
   query,
   entries,
   selectedIsTrash,
@@ -17,6 +23,17 @@ const {
 } = useVault();
 
 const emptyConfirm = ref(false);
+const listRef = ref<HTMLElement | null>(null);
+
+// 键盘上下移动时把选中项滚进视野（鼠标点选时本来就在视野里，scrollIntoView 也不会动）
+watch(selectedUuid, async (uuid) => {
+  if (!uuid) return;
+  await nextTick();
+  const el = listRef.value?.querySelector<HTMLElement>(
+    `[data-uuid="${CSS.escape(uuid)}"]`
+  );
+  el?.scrollIntoView({ block: "nearest" });
+});
 
 const heading = computed(() => {
   const name = selectedIsTrash.value
@@ -24,10 +41,6 @@ const heading = computed(() => {
     : (selectedGroup.value?.name ?? "全部条目");
   return `${name} · ${visibleEntries.value.length} 条`;
 });
-
-function toggleSort() {
-  sortMode.value = sortMode.value === "recent" ? "title" : "recent";
-}
 
 /** 只在「已过期」或「7 天内到期」时给徽章，避免列表噪音 */
 function expiryBadge(entry: EntryVM): string {
@@ -58,8 +71,8 @@ function onEmptyTrash() {
 
 <template>
   <section class="flex min-h-0 flex-col">
-    <div class="flex items-center justify-between gap-2 px-4 pb-2 pt-4">
-      <span class="truncate font-serif text-sm font-semibold text-stone-800">
+    <div class="flex flex-wrap items-center justify-between gap-2 px-4 pb-2 pt-4">
+      <span class="min-w-0 flex-1 truncate font-serif text-sm font-semibold text-stone-800">
         {{ heading }}
       </span>
       <button
@@ -75,17 +88,14 @@ function onEmptyTrash() {
       >
         {{ emptyConfirm ? "确认清空？" : "清空回收站" }}
       </button>
-      <button
-        v-else
-        class="shrink-0 rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-600 transition-colors duration-300 hover:bg-stone-100"
-        @click="toggleSort"
-      >
-        {{ sortMode === "recent" ? "最近修改 ▾" : "按名称 ▾" }}
-      </button>
+      <div v-else class="ml-auto flex shrink-0 items-center gap-1">
+        <button class="rounded-full border border-stone-200 px-2 py-1 text-xs" :class="favoritesOnly ? 'bg-[#d4a373]/25 text-[#5c4033]' : 'bg-white text-stone-500'" :aria-pressed="favoritesOnly" @click="favoritesOnly = !favoritesOnly">★ 收藏</button>
+        <select v-model="sortMode" aria-label="条目排序" class="w-28 shrink-0 rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-600"><option value="recent">最近修改</option><option value="used">最近使用</option><option value="title">按名称</option></select>
+      </div>
     </div>
 
-    <ul class="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 pb-4">
-      <li v-for="e in visibleEntries" :key="e.uuid">
+    <ul ref="listRef" class="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 pb-4">
+      <li v-for="e in visibleEntries" :key="e.uuid" :data-uuid="e.uuid">
         <button
           class="flex w-full items-center gap-3 rounded-[1rem] px-3 py-2.5 text-left transition-colors duration-300"
           :class="
@@ -95,16 +105,10 @@ function onEmptyTrash() {
           "
           @click="selectEntry(e.uuid)"
         >
-          <span
-            class="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-stone-300 font-semibold text-stone-800"
-            :class="e.icon ? 'bg-white' : toneOf(e.title) === 'sage' ? 'bg-[#8b9d77]/30' : 'bg-[#d4a373]/30'"
-          >
-            <img v-if="e.icon" :src="e.icon" alt="" class="h-6 w-6 object-contain" />
-            <template v-else>{{ initialOf(e.title) }}</template>
-          </span>
+          <EntryAvatar :title="e.title" :icon="e.icon" />
             <span class="min-w-0 flex-1">
               <span class="flex items-center gap-2">
-                <span class="truncate font-medium text-stone-800">{{ e.title }}</span>
+                <span class="truncate font-medium text-stone-800"><MatchText :text="e.title" :query="query" /></span>
                 <span v-if="e.favorite" class="shrink-0 text-xs text-[#d4a373]" title="已收藏">★</span>
                 <span
                   v-if="e.tags.length"
@@ -132,23 +136,19 @@ function onEmptyTrash() {
               </span>
             </span>
             <span class="block truncate text-xs text-stone-500">
-              {{ e.username || e.url || "—" }}
+              <MatchText :text="e.username || e.url || '—'" :query="query" />
+              <MatchContext :entry="e" :query="query" />
             </span>
           </span>
           <span class="shrink-0 text-xs text-stone-400">{{ relativeTime(e.updatedAt) }}</span>
         </button>
       </li>
 
-      <li
-        v-if="!visibleEntries.length"
-        class="px-4 py-12 text-center text-sm text-stone-400"
-      >
-        <template v-if="query.trim()">
-          没有匹配「{{ query.trim() }}」的条目
-        </template>
-        <template v-else-if="selectedIsTrash"> 回收站是空的 </template>
-        <template v-else-if="entries.length"> 这个分组还是空的 </template>
-        <template v-else> 库里还没有条目，点右上角「+ 新建」加一条 </template>
+      <li v-if="!visibleEntries.length">
+        <EmptyState v-if="query.trim()" kind="search" title="没有找到这片叶子" :description="`没有匹配「${query.trim()}」的条目，试试更短的关键词。`" />
+        <EmptyState v-else-if="selectedIsTrash" kind="box" title="回收站是空的" description="移除的条目会先停留在这里。" />
+        <EmptyState v-else-if="favoritesOnly" kind="leaf" title="还没有收藏" description="在条目详情点击星标，把常用条目留在手边。" />
+        <EmptyState v-else :title="entries.some(e => !e.inTrash) ? '这个分组还在生长' : '种下第一把钥匙'" description="新增条目，或在设置的数据页导入已有密码。"><button class="mt-4 rounded-full border border-stone-300 bg-white px-4 py-2 text-xs text-[#5c4033]" @click="openCreateDrawer">＋ 新建条目</button></EmptyState>
       </li>
     </ul>
   </section>

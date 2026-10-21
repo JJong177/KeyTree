@@ -3,7 +3,9 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { copyText } from "../lib/clipboard";
 import { formatCode, generateTotp, type TotpConfig } from "../lib/totp";
 
-const props = defineProps<{ config: TotpConfig }>();
+import { useVault } from "../composables/useVault";
+const { touchUsage } = useVault();
+const props = defineProps<{ config: TotpConfig; entryUuid?: string }>();
 
 const raw = ref("");
 const code = ref("");
@@ -41,10 +43,10 @@ watch(
 // 圆环周长：2 * π * 16
 const CIRCUMFERENCE = 100.53;
 
-function copy() {
+async function copy() {
   if (!raw.value) return;
   // 动态码过期后自动清空剪贴板，避免复制到一半就失效的码留在外面
-  copyText(raw.value, Math.max(1, remaining.value) * 1000);
+  if (await copyText(raw.value, Math.max(1, remaining.value) * 1000) && props.entryUuid) void touchUsage(props.entryUuid);
 }
 </script>
 

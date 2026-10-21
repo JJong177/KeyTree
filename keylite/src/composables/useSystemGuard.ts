@@ -13,7 +13,7 @@ import { toast } from "../lib/toast";
  *    （WebView2 的子窗口可能晚于启动创建，所以延迟补一次）
  */
 export function useSystemGuard(): void {
-  const { unlocked, lock } = useVault();
+  const { unlocked, lock, error } = useVault();
   let unlisten: UnlistenFn | undefined;
   let unlistenTray: UnlistenFn | undefined;
 
@@ -32,16 +32,18 @@ export function useSystemGuard(): void {
 
     unlisten = await listen<string>("keytree:system-lock", (event) => {
       if (!unlocked.value) return;
-      lock();
       const why = event.payload === "suspend" ? "系统休眠" : "屏幕锁定";
-      toast(`${why}，密码库已锁定`, 3000);
+      void lock({ force: true }).then((locked) => {
+        if (locked) toast(error.value || `${why}，密码库已锁定`, error.value ? 6000 : 3000);
+      });
     });
 
     // 托盘菜单「锁定」：Rust 侧定向发给主窗口
     unlistenTray = await listen("keytree:tray-lock", () => {
       if (!unlocked.value) return;
-      lock();
-      toast("已从托盘锁定", 2000);
+      void lock().then((locked) => {
+        toast(locked ? "已从托盘锁定" : error.value || "锁定已取消，请先保存或另存副本", locked ? 2000 : 6000);
+      });
     });
   });
 

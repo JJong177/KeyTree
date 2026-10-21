@@ -1,3 +1,11 @@
+<script lang="ts">
+/**
+ * 自动 Hello 解锁每个进程只尝试一次。
+ * 手动锁定后解锁页会重新挂载，这时候绝不能再弹验证框（用户刚主动锁的）。
+ */
+let autoHelloAttempted = false;
+</script>
+
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
@@ -5,9 +13,20 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { useVault } from "../composables/useVault";
 import { settings, type VaultMeta } from "../lib/settings";
 import logoUrl from "../../assets/logo-256.png";
+import PublicPasswordHint from "./PublicPasswordHint.vue";
 
-const { openVault, createVault, helloUnlock, busy, error, status, clearError } =
-  useVault();
+const {
+  openVault,
+  createVault,
+  helloUnlock,
+  backupInfoOf,
+  restoreBackup,
+  busy,
+  error,
+  errorKind,
+  status,
+  clearError,
+} = useVault();
 
 type Mode = "recent" | "open" | "create";
 const mode = ref<Mode>(settings.vaults.length ? "recent" : "open");
@@ -79,20 +98,57 @@ async function refreshCardBadges(): Promise<void> {
   helloMap.value = map;
 }
 
-/** Hello 解锁：先过生物验证，再用 DPAPI 缓存凭据开库 */
-async function helloSubmit(): Promise<void> {
+/** 原生命令内部完成 Hello 门禁和凭据读取；取消后主密码入口始终可用。 */
+async function helloSubmit(_silent = false): Promise<void> {
   if (!helloReady.value || busy.value) return;
   localError.value = "";
   clearError();
-  const verified = await invoke<boolean>("hello_verify", {
-    prompt: "解锁 KeyTree 密码库",
-  });
-  if (!verified) {
-    localError.value = "Windows Hello 验证未通过";
-    return;
-  }
   await helloUnlock(path.value);
   if (error.value) await refreshHello();
+}
+
+// ---- 从滚动备份恢复（.kdbx.bak） ----
+const backup = ref({ exists: false, mtimeMs: 0, size: 0 });
+const confirmRestore = ref(false);
+
+async function refreshBackup(): Promise<void> {
+  backup.value = path.value
+    ? await backupInfoOf(path.value)
+    : { exists: false, mtimeMs: 0, size: 0 };
+}
+
+/**
+ * 只有「文件本身坏了 / 版本不支持」才给恢复入口。
+ * 密码错时 .bak 一样解不开，摆个按钮只会让用户以为能绕过密码；
+ * 选错文件、老 .kdb 格式、读不到文件同理——换文件或修权限才是正解。
+ */
+const showRestore = computed(
+  () =>
+    backup.value.exists &&
+    !!path.value &&
+    (errorKind.value === "corrupt" || errorKind.value === "unsupported")
+);
+
+const backupText = computed(() => {
+  const b = backup.value;
+  if (!b.exists) return "";
+  const at = new Date(b.mtimeMs).toLocaleString("zh-CN", { hour12: false });
+  return `${at} · ${Math.max(1, Math.round(b.size / 1024))} KB`;
+});
+
+async function doRestore(): Promise<void> {
+  if (!confirmRestore.value) {
+    confirmRestore.value = true;
+    window.setTimeout(() => (confirmRestore.value = false), 5000);
+    return;
+  }
+  confirmRestore.value = false;
+  if (await restoreBackup(path.value)) {
+    password.value = "";
+    localError.value = "";
+    await refreshBackup();
+    await refreshHello();
+  }
 }
 
 function switchMode(next: Mode) {
@@ -155,7 +211,8 @@ async function submit() {
   localError.value = "";
   clearError();
   if (mode.value !== "create") {
-    await openVault(path.value, password.value, keyFileBytes.value);
+    const ok = await openVault(path.value, password.value, keyFileBytes.value);
+    if (!ok) await refreshBackup();
     return;
   }
   if (password.value !== confirm.value) {
@@ -179,13 +236,29 @@ async function submit() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   void refreshHello();
   void refreshCardBadges();
+  void refreshBackup();
+  // spec §6.1：启动先试 Hello，失败再回落到主密码。只在本进程第一次挂载时做。
+  if (autoHelloAttempted) return;
+  autoHelloAttempted = true;
+  if (!settings.autoHelloUnlock) return;
+  if (mode.value === "create" || !path.value) return;
+  // 让窗口先画出来，系统验证框不会盖在空白窗口上
+  await new Promise((resolve) => window.setTimeout(resolve, 600));
+  // 用户已经在输密码了就别打断
+  if (busy.value || password.value) return;
+  await refreshHello();
+  if (helloReady.value) await helloSubmit(true);
 });
-watch(path, refreshHello);
+watch(path, () => {
+  void refreshHello();
+  void refreshBackup();
+});
 watch(mode, () => {
   void refreshHello();
+  void refreshBackup();
   if (mode.value === "recent") void refreshCardBadges();
 });
 
@@ -370,6 +443,8 @@ const shownError = computed(() => localError.value || error.value);
         </details>
       </template>
 
+      <PublicPasswordHint :path="path" :mode="mode" />
+
       <!-- 新建：确认密码 -->
       <template v-if="mode === 'create'">
         <label class="mb-1 block text-sm font-medium text-stone-700">主密码</label>
@@ -381,11 +456,40 @@ const shownError = computed(() => localError.value || error.value);
             placeholder="••••••••••••"
           />
           <button
-            class="absolute right-2.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-stone-100 text-stone-700 transition-colors duration-300 hover:bg-stone-200"
+            class="absolute right-2.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition-colors duration-300 hover:bg-stone-200"
             type="button"
+            :title="showPassword ? '隐藏密码' : '显示密码'"
+            :aria-label="showPassword ? '隐藏密码' : '显示密码'"
             @click="showPassword = !showPassword"
           >
-            {{ showPassword ? "隐" : "显" }}
+            <svg
+              v-if="showPassword"
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+              <line x1="1" y1="1" x2="23" y2="23" />
+            </svg>
+            <svg
+              v-else
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
           </button>
         </div>
         <div class="mb-2">
@@ -430,7 +534,7 @@ const shownError = computed(() => localError.value || error.value);
             ? '用指纹 / 人脸 / PIN 快速解锁'
             : '需先在 Windows 设置指纹或 PIN，并用主密码成功解锁过一次'
         "
-        @click="helloSubmit"
+        @click="helloSubmit()"
       >
         <svg width="15" height="15" viewBox="0 0 16 16">
           <circle
@@ -464,6 +568,28 @@ const shownError = computed(() => localError.value || error.value);
         <p v-else-if="status" class="text-xs leading-relaxed text-stone-500">
           {{ status }}
         </p>
+
+        <!-- 损坏兜底：同目录的滚动备份（spec §7） -->
+        <div
+          v-if="showRestore"
+          class="mt-2 rounded-[1rem] border border-[#d4a373] bg-[#d4a373]/15 px-3 py-2 text-xs leading-relaxed text-[#5c4033]"
+        >
+          <p>
+            同目录有上次保存前的备份（{{ backupText }}）。如果文件已损坏，可以用它覆盖恢复；
+            当前的损坏文件会改名成 .corrupt-时间戳 留证。
+          </p>
+          <button
+            class="mt-1.5 rounded-full border px-3 py-1 transition-colors duration-300"
+            :class="
+              confirmRestore
+                ? 'border-[#8b2332] bg-[#8b2332] text-white'
+                : 'border-[#d4a373] bg-white text-[#5c4033] hover:bg-[#d4a373]/20'
+            "
+            @click="doRestore"
+          >
+            {{ confirmRestore ? "再点一次确认恢复" : "从备份恢复" }}
+          </button>
+        </div>
       </div>
 
       <svg

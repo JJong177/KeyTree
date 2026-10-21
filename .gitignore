@@ -1,9 +1,4 @@
-.workbuddy/
-node_modules/
-dist/
-target/
-tmp/
-*.log
+# WorkBuddy 工作区 / WorkBuddy workspace
 .workbuddy/
 node_modules/
 dist/
@@ -11,7 +6,16 @@ target/
 tmp/
 *.log
 
+# 构建产物与临时输出 / build artifacts & temp output
+*.exe
+cli-out.txt
+
 # 密码库与敏感产物一律不进 git（真实库 + 恢复候选列表）
+# Vault files & sensitive artifacts never enter git (real vaults + recovery candidates)
 *.kdbx
+# 滚动备份 / 损坏留证：同样是明文加密库的完整副本
+# Rolling backups / corruption evidence: full encrypted-vault copies too
+*.kdbx.bak
+*.kdbx.corrupt-*
 recovery-candidates.txt
 recovery-result.txt

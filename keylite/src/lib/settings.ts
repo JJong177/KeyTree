@@ -15,6 +15,13 @@ export interface AppSettings {
   vaults: VaultMeta[];
   /** 开机自启（走 tauri-plugin-autostart，注册当前用户登录项） */
   launchAtLogin: boolean;
+  /** 启动时自动尝试 Windows Hello 解锁上次的库（省一次点按） */
+  autoHelloUnlock: boolean;
+  /** 密码生成器上次的选择（每次打开抽屉不再重置） */
+  genMode: "chars" | "phrase";
+  genLength: number;
+  genSymbols: boolean;
+  genWords: number;
 }
 
 export interface VaultMeta {
@@ -58,6 +65,11 @@ const defaults: AppSettings = {
   lastVaultPath: "",
   vaults: [],
   launchAtLogin: false,
+  autoHelloUnlock: true,
+  genMode: "chars",
+  genLength: 20,
+  genSymbols: true,
+  genWords: 6,
 };
 
 function clamp(value: number, min: number, max: number, fallback: number): number {
@@ -101,6 +113,12 @@ function load(): AppSettings {
             }))
         : [],
       launchAtLogin: parsed.launchAtLogin === true,
+      autoHelloUnlock: parsed.autoHelloUnlock !== false,
+      genMode: parsed.genMode === "phrase" ? "phrase" : "chars",
+      genLength: clamp(Number(parsed.genLength), 8, 64, defaults.genLength),
+      // 旧版本没有这一项：布尔缺省 true（!== false）
+      genSymbols: parsed.genSymbols !== false,
+      genWords: clamp(Number(parsed.genWords), 3, 12, defaults.genWords),
     };
   } catch {
     return { ...defaults };

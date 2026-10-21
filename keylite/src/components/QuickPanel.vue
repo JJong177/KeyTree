@@ -1,40 +1,33 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { useDialogFocus } from "../composables/useDialogFocus";
 import { useVault } from "../composables/useVault";
 import { copyText } from "../lib/clipboard";
 import { toast } from "../lib/toast";
 import { formatCode, generateTotp } from "../lib/totp";
-import { initialOf, relativeTime, toneOf } from "../lib/format";
+import { relativeTime } from "../lib/format";
+import { searchEntries } from "../lib/search";
+import { recordAudit } from "../lib/audit";
+import EntryAvatar from "./EntryAvatar.vue";
+import EmptyState from "./EmptyState.vue";
+import MatchText from "./MatchText.vue";
+import MatchContext from "./MatchContext.vue";
+import TotpCountdown from "./TotpCountdown.vue";
 
 const emit = defineEmits<{ close: []; edit: [uuid: string] }>();
 
-const { entries, selectGroup, selectEntry, totpConfigOf, draftOf } = useVault();
+const { entries, selectGroup, selectEntry, totpConfigOf, draftOf, touchUsage, autoType, error } = useVault();
+
+const dialogRoot = ref<HTMLElement | null>(null);
+useDialogFocus(dialogRoot, () => emit("close"));
 
 const query = ref("");
 const activeIndex = ref(0);
 const showActions = ref(false);
 const inputRef = ref<HTMLInputElement | null>(null);
 
-const results = computed(() => {
-  const q = query.value.trim().toLowerCase();
-  const list = entries.value.filter((e) => !e.inTrash);
-  const matched = q
-    ? list.filter((e) =>
-        [e.title, e.username, e.url, ...e.tags]
-          .join("\n")
-          .toLowerCase()
-          .includes(q)
-      )
-    : list;
-  return [...matched].sort(
-    // spec §6.2：最近使用 > 收藏 > 最近修改
-    (a, b) =>
-      (b.usageCount ?? 0) - (a.usageCount ?? 0) ||
-      Number(b.favorite ?? false) - Number(a.favorite ?? false) ||
-      (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0)
-  ).slice(0, 20);
-});
+const results = computed(() => searchEntries(entries.value.filter(e => !e.inTrash), query.value).slice(0, 20));
 
 const active = computed(() => results.value[activeIndex.value] ?? null);
 
@@ -44,18 +37,18 @@ function move(delta: number) {
     (activeIndex.value + delta + results.value.length) % results.value.length;
 }
 
-function copyPassword() {
+async function copyPassword() {
   const entry = active.value;
   if (!entry) return;
   const draft = draftOf(entry.uuid);
   if (!draft) return;
-  copyText(draft.password);
+  if (await copyText(draft.password)) { void touchUsage(entry.uuid); void recordAudit("copy-password", entry.uuid); emit("close"); }
 }
 
-function copyUsername() {
+async function copyUsername() {
   const entry = active.value;
   if (!entry || !entry.username) return;
-  copyText(entry.username, 0);
+  if (await copyText(entry.username, 0)) emit("close");
 }
 
 async function copyTotp() {
@@ -67,8 +60,11 @@ async function copyTotp() {
     return;
   }
   const result = await generateTotp(config);
-  copyText(result.code, Math.max(1, result.remaining) * 1000);
-  toast(`动态码 ${formatCode(result.code)} · 剩 ${result.remaining} 秒`);
+  if (await copyText(result.code, Math.max(1, result.remaining) * 1000)) {
+    void touchUsage(entry.uuid);
+    toast(`动态码 ${formatCode(result.code)} · 剩 ${result.remaining} 秒`);
+    emit("close");
+  }
 }
 
 async function openUrl() {
@@ -85,6 +81,11 @@ async function openUrl() {
   }
 }
 
+async function autoTypeEntry() {
+  if (!active.value) return;
+  const ok = await autoType(active.value.uuid);
+  if (ok) emit("close"); else toast(error.value || "自动输入失败");
+}
 function editInApp() {
   const entry = active.value;
   if (!entry) return;
@@ -140,6 +141,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
     @click.self="emit('close')"
   >
     <div
+      ref="dialogRoot" role="dialog" aria-modal="true" aria-label="快速搜索" tabindex="-1"
       class="flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] border border-stone-300 bg-[#faf6f1]"
     >
       <!-- 搜索框 -->
@@ -173,20 +175,16 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
             @mouseenter="activeIndex = index"
             @click="activeIndex = index; copyPassword()"
           >
-            <span
-              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-stone-300 text-sm font-semibold text-stone-800"
-              :class="toneOf(e.title) === 'sage' ? 'bg-[#8b9d77]/30' : 'bg-[#d4a373]/30'"
-            >
-              {{ initialOf(e.title) }}
-            </span>
+            <EntryAvatar :title="e.title" :icon="e.icon" :size="32" />
             <span class="min-w-0 flex-1">
               <span class="block truncate text-sm font-medium text-stone-800">
-                {{ e.title }}
+                <MatchText :text="e.title" :query="query" />
                 <span v-if="e.favorite" class="text-[#d4a373]">★</span>
-                <span v-if="e.hasTotp" class="ml-1 text-xs text-[#8b9d77]">⏱</span>
+                <TotpCountdown v-if="e.totpPeriod" :period="e.totpPeriod" />
               </span>
               <span class="block truncate text-xs text-stone-500">
-                {{ e.username || e.url || "—" }}
+                <MatchText :text="e.username || e.url || '—'" :query="query" />
+              <MatchContext :entry="e" :query="query" />
               </span>
             </span>
             <span class="shrink-0 text-xs text-stone-400">{{ relativeTime(e.updatedAt) }}</span>
@@ -194,7 +192,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         </li>
 
         <li v-if="!results.length" class="px-4 py-10 text-center text-sm text-stone-400">
-          没有匹配的条目
+          <EmptyState kind="search" title="没有找到匹配条目" description="试试标题、用户名、网址或标签中的关键词。" />
         </li>
       </ul>
 
@@ -210,6 +208,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           <button v-if="active.hasTotp" class="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-100" @click="copyTotp">
             复制动态码
           </button>
+          <button class="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700" @click="autoTypeEntry">自动输入</button>
           <button v-if="active.url" class="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-100" @click="openUrl">
             打开网址
           </button>

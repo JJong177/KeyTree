@@ -5,15 +5,27 @@ import { getKdbxweb, type Kdbxweb } from "../kdbx/kdbxweb";
 import { installArgon2 } from "../kdbx/argon2";
 import {
   parseLegacyTotp,
-  parseOtpauth,
   type TotpConfig,
 } from "../lib/totp";
 import { dateInputValue, hostOf } from "../lib/format";
 import { DEFAULT_AUTO_TYPE, parseSequence } from "../lib/autotype";
 import { settings, upsertVault } from "../lib/settings";
 import { fetchFavicon, bytesToDataUrl } from "../lib/favicon";
-import { parseCsv, detectColumns, buildChromeCsv } from "../lib/csv";
+import { buildChromeCsv } from "../lib/csv";
 import { toast } from "../lib/toast";
+import { searchEntries } from "../lib/search";
+import { applyCustomFields, isReservedField, validateCustomFields, validateSequence, type CustomFieldDraft } from "../lib/entry-fields";
+import { parseTotpInput, normalizeTotpInput } from "../lib/totp";
+import { analyzeImport, classifyImportRecords, type ImportRow, type ImportRecord } from "../lib/import-plan";
+import { healthSummary, kdfDetails } from "../lib/vault-health";
+import { recordAudit } from "../lib/audit";
+import { readMasterHint, writeMasterHint, publicDataSnapshot, type MasterHintResult } from "../lib/master-password-hint";
+
+import { webdavErrorCode, webdavErrorMessage, webdavIsConflict, type WebdavState, type WebdavPrepared, type WebdavCommitted, type WebdavConfig } from "../lib/webdav";
+
+import { summarizeSnapshot, snapshotErrorMessage, type SnapshotPreview, type SnapshotInfo, type SnapshotList } from "../lib/snapshots";
+
+import { historyToken, resolveHistory, historyNote, writeHistoryNote, copySnapshotMetadata, mergeWithHistoryNotes } from "../lib/history";
 
 export interface GroupVM {
   uuid: string;
@@ -41,6 +53,8 @@ export interface EntryVM {
   updatedAt: Date | null;
   createdAt: Date | null;
   usageCount: number;
+  lastUsedAt: Date | null;
+  totpPeriod: number | null;
   /** 自定义图标（favicon）的 data URL；null = 没有图标，调用方降级为字母头像 */
   icon: string | null;
   /** 收藏（存 KDBX CustomData，KeePassXC 打开时忽略） */
@@ -60,16 +74,21 @@ export interface EntryDraft {
   expires: boolean;
   /** yyyy-MM-dd（date input 的值） */
   expiryDate: string;
+  customFields?: CustomFieldDraft[];
+  removedFields?: string[];
+  autoTypeSequence?: string;
 }
 
 export interface HistoryItem {
+  id: string;
+  note: string;
   index: number;
   title: string;
   username: string;
   at: Date | null;
 }
 
-export type SortMode = "recent" | "title";
+export type SortMode = "recent" | "title" | "used";
 
 const db = shallowRef<Kdbx | null>(null);
 const engine = shallowRef<Kdbxweb | null>(null);
@@ -77,10 +96,29 @@ const vaultPath = ref("");
 const groups = ref<GroupVM[]>([]);
 const entries = ref<EntryVM[]>([]);
 const busy = ref(false);
+/** 解锁失败的分类：UI 据此决定给不给「从备份恢复」入口，比匹配文案可靠 */
+export type UnlockErrorKind =
+  | "none"
+  /** 主密码或密钥文件不正确 */
+  | "bad-key"
+  /** 文件损坏 / 被截断 */
+  | "corrupt"
+  /** 根本不是 KDBX */
+  | "not-kdbx"
+  /** KeePass 1.x 的老 .kdb 格式 */
+  | "old-kdb"
+  /** KDBX 版本或算法超出引擎支持 */
+  | "unsupported"
+  /** 读不到文件（不存在 / 被占用 / 无权限） */
+  | "io"
+  | "unknown";
+
 const error = ref("");
+const errorKind = ref<UnlockErrorKind>("none");
 const status = ref("");
 const query = ref("");
 const sortMode = ref<SortMode>("recent");
+const favoritesOnly = ref(false);
 const selectedGroupUuid = ref("all");
 const selectedUuid = ref("");
 const drawer = ref<{ open: boolean; mode: "create" | "edit"; uuid: string }>({
@@ -106,6 +144,7 @@ const hostIcons = new Map<string, string>();
 interface VaultStat {
   mtimeMs: number;
   size: number;
+  mtimeNs?: string;
 }
 
 /** 磁盘上库文件的最新 stat：等于它就是「自己写的」，不同就是「外部改的」 */
@@ -122,19 +161,32 @@ async function statOf(path: string): Promise<VaultStat | null> {
 }
 
 function sameStat(a: VaultStat | null, b: VaultStat | null): boolean {
-  return !!a && !!b && a.mtimeMs === b.mtimeMs && a.size === b.size;
+  return !!a && !!b && a.mtimeMs === b.mtimeMs && a.size === b.size && a.mtimeNs === b.mtimeNs;
 }
+
+/** mergeFromDisk 的结果：merged 正常、skipped 磁盘上没东西可合、failed 合不了 */
+type MergeOutcome = "merged" | "skipped" | "failed" | "public-conflict";
+
+/** 同一个磁盘版本只留一份冲突副本，避免每次保存失败都复制一遍 */
+let conflictSavedFor = "";
+/** 打开/成功保存时的公开元数据；条目级 merge 不负责此头部字段。 */
+let knownPublicData = "";
 
 /**
  * 用当前凭据（Credentials 实例只含 hash，无需明文密码）load 磁盘最新版，
  * 三方合并进内存库并刷新视图。不落盘——落盘由调用方决定。
- * 外部版本解不开（比如被改过密码）时返回 false 并写 error。
+ * 外部版本解不开（比如被改过密码）时留存 .conflict 副本并返回 failed。
  */
-async function mergeFromDisk(): Promise<boolean> {
+async function mergeFromDisk(): Promise<MergeOutcome> {
   const k = engine.value;
   const current = db.value;
   const path = vaultPath.value;
-  if (!k || !current || !path || syncing) return false;
+  if (!k || !current || !path) return "skipped";
+  // 另一个合并正在进行：让调用方按失败处理（宁可中止一次保存，也不覆盖别人的版本）
+  if (syncing) return "failed";
+  const diskStat = await statOf(path);
+  // 磁盘上根本没有可读的库（被删/被锁）：没有会被覆盖的内容，允许继续写
+  if (!diskStat) return "skipped";
   syncing = true;
   try {
     const bytes = await invoke<number[]>("read_vault", { path });
@@ -142,27 +194,79 @@ async function mergeFromDisk(): Promise<boolean> {
       new Uint8Array(bytes).buffer,
       current.credentials
     );
-    current.merge(remote);
+    if (db.value !== current || vaultPath.value !== path) return "skipped";
+    if (!sameStat(diskStat, await statOf(path))) {
+      error.value = "读取外部版本期间文件再次变化，无法合并，保存已中止，请重试";
+      return "failed";
+    }
+    if (publicDataSnapshot(k, remote.header) !== knownPublicData) {
+      error.value = "磁盘上的公开提示或其他公开元数据已被修改，无法自动合并。本次保存已中止，磁盘原件未改，请先另存当前修改，再重新打开磁盘版本";
+      return "public-conflict";
+    }
+    mergeWithHistoryNotes(current, remote);
+    knownStat.value = diskStat;
     rebuild();
-    return true;
+    void recordAudit("merge");
+    return "merged";
   } catch (e) {
-    error.value = `外部修改无法自动合并（${unlockErrorText(e)}），请先保存或另存你的版本`;
-    return false;
+    // 合不了也绝不丢掉磁盘那份：先原样留成冲突副本，用户还能手动打开捞回来
+    let savedName = "";
+    const key = `${path}|${diskStat.mtimeMs}|${diskStat.size}`;
+    if (conflictSavedFor !== key) {
+      conflictSavedFor = key;
+      try {
+        const savedPath = await invoke<string>("save_conflict_copy", { path });
+        savedName = savedPath.split(/[\\/]/).pop() ?? savedPath;
+      } catch {
+        // 复制失败不能掩盖原始错误
+      }
+    } else {
+      savedName = "（已留存过副本）";
+    }
+    const hint = savedName ? `，磁盘版本已另存为 ${savedName}` : "";
+    const classified = classifyUnlockError(e, false);
+    error.value = `外部修改无法自动合并（${
+      classified.kind === "bad-key"
+        ? "磁盘上的库已不是用当前凭据加密，可能被别人改过主密码"
+        : classified.text
+    }）${hint}，本次保存已中止`;
+    return "failed";
   } finally {
     syncing = false;
   }
 }
 
 /**
+ * 磁盘上的库是否真的被外部改过。
+ * 关键：我们自己写盘也会触发 watcher，必须用 knownStat 把「自写事件」认出来，
+ * 否则就是 保存 → 事件 → merge → 保存 的死循环（实测每 3 秒重写一次库，
+ * 表现为「修改主密码」按钮跟着 busy 反复闪）。
+ */
+async function diskChangedSinceKnown(): Promise<boolean> {
+  const path = vaultPath.value;
+  if (!path) return false;
+  const stat = await statOf(path);
+  if (stat && sameStat(stat, knownStat.value)) return false;
+  return true;
+}
+
+/**
  * watcher 事件触发的同步：合并外部修改并落盘。
- * 落盘会产生新的 watcher 事件，但 knownStat 已更新，会被 stat 比对忽略。
+ * 落盘会产生新的 watcher 事件，但 writeBytes 已把 knownStat 更新成本次写出的 stat，
+ * 下一次事件在 diskChangedSinceKnown 这一关就被认出来并忽略。
  */
 async function syncExternalChanges(): Promise<void> {
-  if (!unlocked.value || busy.value || syncing) return;
-  const merged = await mergeFromDisk();
-  if (merged) {
-    await saveVault();
+  if (!unlocked.value || busy.value || syncing || saveBusy) return;
+  if (!(await diskChangedSinceKnown())) return;
+  const outcome = await mergeFromDisk();
+  if (outcome === "merged") {
+    error.value = "";
+    if (!(await saveVault())) return;
     status.value = `已合并磁盘上的外部修改 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
+  } else if (outcome === "public-conflict") {
+    status.value = "公开元数据冲突，保存已中止，磁盘原件未改";
+  } else if (outcome === "failed") {
+    status.value = "磁盘上的版本无法合并，保存已中止（见上方提示）";
   }
 }
 
@@ -222,24 +326,8 @@ const visibleEntries = computed<EntryVM[]>(() => {
       (e) => !e.inTrash && e.ancestors.includes(selectedGroupUuid.value)
     );
   }
-  const q = query.value.trim().toLowerCase();
-  if (q) {
-    list = list.filter((e) =>
-      [e.title, e.username, e.url, e.notes, ...e.tags]
-        .join("\n")
-        .toLowerCase()
-        .includes(q)
-    );
-  }
-  const sorted = [...list];
-  if (sortMode.value === "title") {
-    sorted.sort((a, b) => a.title.localeCompare(b.title, "zh-Hans-CN"));
-  } else {
-    sorted.sort(
-      (a, b) => (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0)
-    );
-  }
-  return sorted;
+  if (favoritesOnly.value && !selectedIsTrash.value) list = list.filter(e => e.favorite);
+  return searchEntries(list, query.value, sortMode.value);
 });
 
 const selectedEntry = computed<EntryVM | null>(
@@ -306,6 +394,8 @@ function toVM(
     updatedAt: entry.times.lastModTime ?? null,
     createdAt: entry.times.creationTime ?? null,
     usageCount: entry.times.usageCount ?? 0,
+    lastUsedAt: (entry.times.usageCount ?? 0) > 0 ? entry.times.lastAccessTime ?? null : null,
+    totpPeriod: totpConfigOf(entry.uuid.id)?.period ?? null,
     icon: entry.customIcon ? iconUrlOf(entry.customIcon.id) : null,
     favorite: !!entry.customData?.get("keytree.favorite"),
   };
@@ -382,24 +472,462 @@ function rebuild(): void {
   }
 }
 
-async function writeBytes(path: string, buffer: ArrayBuffer): Promise<void> {
-  await invoke("write_vault", {
+async function writeBytes(path: string, buffer: ArrayBuffer, expectedStat: VaultStat | null = null): Promise<void> {
+  const written = await invoke<VaultStat | null>("write_vault", {
     path,
     bytes: Array.from(new Uint8Array(buffer)),
+    expectedStat,
   });
   // 更新已知 stat：这样 watcher 收到自己写入的事件时能认出来并忽略
   if (path === vaultPath.value) {
-    knownStat.value = await statOf(path);
+    knownStat.value = written ?? await statOf(path);
   }
 }
 
-/** kdbxweb 的 InvalidKey = 复合密钥摘要不匹配，翻成人话 */
-function unlockErrorText(e: unknown): string {
-  const text = msg(e);
-  if (/InvalidKey/i.test(text)) {
-    return "主密码不正确（也可能是这个文件不是有效的 KDBX 库）";
+// ==================== 保存管线（合并写 + 串行化） ====================
+
+/** 高频动作（复制导致的 usageCount 递增、后台抓图标）合并到一次写盘 */
+const SAVE_DEBOUNCE_MS = 500;
+
+let saveTimer: number | undefined;
+/** kdbxweb 的 save() 不能并发跑在同一个 db 上：所有写盘排成一条链 */
+let saveChain: Promise<boolean> = Promise.resolve(false);
+/** 写盘进行中：此时 watcher 触发的 merge 必须让路（merge 会改正在被序列化的树） */
+let saveBusy = false;
+/** 请求保存的修订与已确认落盘的修订分开记录；定时器消失不代表已经保存。 */
+const changeRevision = ref(0);
+const persistedRevision = ref(0);
+const hasUnsavedChanges = computed(() => changeRevision.value !== persistedRevision.value);
+let saveError = "";
+
+function resetSaveState(): void {
+  changeRevision.value = 0;
+  persistedRevision.value = 0;
+  saveError = "";
+}
+
+function cancelScheduledSave(): void {
+  if (saveTimer !== undefined) {
+    window.clearTimeout(saveTimer);
+    saveTimer = undefined;
   }
-  return text;
+}
+
+/**
+ * 未引用图标清理：重抓 favicon 每次都会新增一枚图标，旧的不清就永远留在库里膨胀。
+ * kdbxweb 的 cleanup 会顺手写 deletedObjects（多端合并时不会把图标"复活"）。
+ */
+function pruneUnusedIcons(current: Kdbx): void {
+  current.cleanup({ customIcons: true });
+  const alive = current.meta.customIcons;
+  // 缓存里可能留着刚被清掉的 id：不清掉的话下次会复用悬空图标
+  for (const [host, id] of [...hostIcons]) {
+    if (!alive.has(id)) hostIcons.delete(host);
+  }
+  for (const id of [...iconUrls.keys()]) {
+    if (!alive.has(id)) iconUrls.delete(id);
+  }
+}
+
+async function persist(announce: boolean): Promise<boolean> {
+  const current = db.value;
+  const path = vaultPath.value;
+  if (!current || !path) return false;
+  saveBusy = true;
+  try {
+    // 保存前检测（spec §8.2 双保险）：watcher 漏掉的外部变更在这里兜住。
+    // 合不了必须中止——否则这一次落盘会把磁盘上的外部版本直接盖掉。
+    if (knownStat.value && (await diskChangedSinceKnown())) {
+      const outcome = await mergeFromDisk();
+      if (outcome === "failed" || outcome === "public-conflict") {
+        throw new Error("检测到外部修改但无法合并，已中止保存（磁盘版本另有副本留存）");
+      }
+      if (outcome === "merged") {
+        status.value = "检测到外部修改，已合并后再保存";
+      }
+    }
+    // 序列化期间仍可能有使用计数等新改动：只能确认本次开始前的修订。
+    const revision = changeRevision.value;
+    const previousSaveError = saveError;
+    const previousStatus = status.value;
+    const expectedStat = knownStat.value;
+    const savedPublicData = engine.value ? publicDataSnapshot(engine.value, current.header) : knownPublicData;
+    pruneUnusedIcons(current);
+    const saved = await current.save();
+    await writeBytes(path, saved, expectedStat);
+    if (db.value === current && vaultPath.value === path) {
+      persistedRevision.value = revision;
+      knownPublicData = savedPublicData;
+      if (error.value === previousSaveError) error.value = "";
+      saveError = "";
+    }
+    if (announce || (previousSaveError && status.value === previousStatus)) {
+      status.value = `已保存 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
+    }
+    return true;
+  } catch (e) {
+    // 合并失败时 mergeFromDisk 已经写了更具体的提示（含冲突副本文件名），
+    // 别用泛化的「保存失败」把它盖掉
+    if (!/无法合并/.test(msg(e))) {
+      error.value = `保存失败：${msg(e)}`;
+    }
+    saveError = error.value;
+    status.value = "有未保存的修改，请重试保存或另存 KDBX 副本";
+    return false;
+  } finally {
+    saveBusy = false;
+  }
+}
+
+function enqueueSave(announce: boolean): Promise<boolean> {
+  // 前一次写盘无论成败都不阻塞下一次；任务本身不会 reject（persist 内部兜底）
+  const task = saveChain.catch(() => false).then(() => persist(announce));
+  saveChain = task;
+  return task;
+}
+
+/** 立即写盘（按钮、改密、导入导出等关键路径） */
+async function saveVault(): Promise<boolean> {
+  cancelScheduledSave();
+  if (!db.value || !vaultPath.value) return false;
+  changeRevision.value++;
+  busy.value = true;
+  try {
+    return await enqueueSave(true);
+  } finally {
+    busy.value = false;
+  }
+}
+
+/**
+ * 合并写：500ms 内的多次调用只落一次盘。
+ * 用于「用户没在改数据结构」的高频动作，避免复制一次密码就写一遍整个库。
+ */
+function saveSoon(): void {
+  if (!db.value || !vaultPath.value) return;
+  changeRevision.value++;
+  cancelScheduledSave();
+  saveTimer = window.setTimeout(() => {
+    saveTimer = undefined;
+    void enqueueSave(false);
+  }, SAVE_DEBOUNCE_MS);
+}
+
+/** 等待已排队写入，并重试尚未落盘的改动（包括已结束的失败任务）。 */
+async function flushSave(): Promise<boolean> {
+  cancelScheduledSave();
+  // 不只看 timer：它可能已经触发，写入仍在执行或刚刚失败。
+  await saveChain;
+  cancelScheduledSave();
+  if (!hasUnsavedChanges.value) return true;
+  if (!db.value || !vaultPath.value) return false;
+  const saved = await enqueueSave(false);
+  // 本轮序列化期间若又有改动，不得向锁定调用方假报“全部已保存”。
+  return saved && !hasUnsavedChanges.value;
+}
+
+const webdavState = ref<WebdavState>({ phase: "unchecked", message: "尚未检查远端；本地保存不代表已同步。", lastSyncedAt: null });
+let webdavGeneration = 0;
+let webdavInFlight = 0;
+let webdavUploadedRevision = -1;
+function resetWebdavSyncStatus(): void {
+  webdavState.value = { phase: "unchecked", message: "尚未检查远端；本地保存不代表已同步。", lastSyncedAt: null };
+  webdavUploadedRevision = -1;
+}
+function invalidateWebdavSync(path = vaultPath.value): void {
+  webdavGeneration++;
+  if (webdavInFlight) {
+    webdavInFlight = 0;
+    busy.value = false;
+    webdavState.value = { ...webdavState.value, phase: "cancelled", message: webdavErrorMessage("WD_CANCELLED") };
+  }
+  if (path) void invoke("webdav_cancel_sync", { vaultPath: path }).catch(() => {});
+}
+watch([db, vaultPath], (_value, previous) => {
+  invalidateWebdavSync(previous?.[1] || "");
+  resetWebdavSyncStatus();
+}, { flush: "sync" });
+watch(changeRevision, revision => {
+  if (webdavState.value.phase === "synced" && revision !== webdavUploadedRevision) {
+    webdavState.value = { ...webdavState.value, phase: "pending", message: "有新的本地修改待同步。" };
+  }
+}, { flush: "sync" });
+
+async function syncWebdav(allowCreate = false): Promise<boolean> {
+  const current = db.value, k = engine.value, path = vaultPath.value;
+  if (!current || !k || !path || busy.value || saveBusy || syncing || webdavInFlight || drawer.value.open) return false;
+  const run = ++webdavGeneration;
+  webdavInFlight = run;
+  busy.value = true;
+  let prepared = false, committed = false;
+  const active = () => webdavInFlight === run && webdavGeneration === run && db.value === current && vaultPath.value === path;
+  const check = () => { if (!active()) throw "WD_CANCELLED"; };
+  const phase = (value: WebdavState["phase"], message: string) => {
+    webdavState.value = { ...webdavState.value, phase: value, message };
+  };
+  try {
+    phase("saving", "正在确认本地保存…");
+    const flushed = await flushSave(); check();
+    if (!flushed) throw "WD_LOCAL_SAVE";
+    phase("downloading", "正在读取远端版本…");
+    const remoteFile = await invoke<WebdavPrepared>("webdav_prepare_sync", { vaultPath: path, allowCreate });
+    check(); prepared = true;
+    if (remoteFile.bytes !== null) {
+      let remote: Kdbx;
+      try { remote = await k.Kdbx.load(new Uint8Array(remoteFile.bytes).buffer, current.credentials); }
+      catch (e) { throw classifyUnlockError(e, hasKeyFile.value).kind === "bad-key" ? "WD_REMOTE_KEY" : "WD_REMOTE_INVALID"; }
+      check();
+      if (current.getDefaultGroup().uuid.id !== remote.getDefaultGroup().uuid.id) throw "WD_DIFFERENT_VAULT";
+      if (publicDataSnapshot(k, remote.header) !== publicDataSnapshot(k, current.header)) throw "WD_PUBLIC_CONFLICT";
+      const saved = await flushSave(); check();
+      if (!saved) throw "WD_LOCAL_SAVE";
+      if (saveBusy || syncing) throw "WD_BUSY";
+      if (publicDataSnapshot(k, remote.header) !== publicDataSnapshot(k, current.header)) throw "WD_PUBLIC_CONFLICT";
+      phase("merging", "正在合并并保存到本地…");
+      // Mark dirty before merge: even a partial merge must not be mistaken for saved data.
+      changeRevision.value++;
+      mergeWithHistoryNotes(current, remote);
+      rebuild();
+      const mergedSaved = await saveVault(); check();
+      busy.value = true;
+      if (!mergedSaved) throw "WD_LOCAL_SAVE";
+    }
+    const saved = await flushSave(); check();
+    if (!saved) throw "WD_LOCAL_SAVE";
+    const expectedStat = await statOf(path); check();
+    if (!expectedStat || !expectedStat.mtimeNs || !sameStat(expectedStat, knownStat.value)) throw "WD_LOCAL_CHANGED";
+    const revision = changeRevision.value;
+    phase("uploading", "正在条件上传；远端变化时不会覆盖…");
+    const result = await invoke<WebdavCommitted>("webdav_commit_sync", { vaultPath: path, token: remoteFile.token, expectedStat });
+    check(); committed = true;
+    const actualStat = await statOf(path); check();
+    webdavUploadedRevision = revision;
+    const pending = revision !== changeRevision.value || hasUnsavedChanges.value || !sameStat(actualStat, result.uploadedStat);
+    webdavState.value = { phase: pending ? "pending" : "synced", message: pending ? "本次上传已确认，仍有新的本地修改待同步。" : "本次同步完成；远端后续变化需再次手动检查。", lastSyncedAt: result.syncedAt };
+    if (result.metadataSaved === false) webdavState.value.message += " 上传已确认，但本机同步时间未能持久保存。";
+    return true;
+  } catch (e) {
+    if (active()) {
+      const code = webdavErrorCode(e);
+      phase(code === "WD_CANCELLED" ? "cancelled" : webdavIsConflict(code) ? "conflict" : "error", webdavErrorMessage(e));
+    }
+    return false;
+  } finally {
+    if (active()) {
+      if (prepared && !committed) await invoke("webdav_cancel_sync", { vaultPath: path }).catch(() => {});
+      if (active()) { webdavInFlight = 0; busy.value = false; }
+    }
+  }
+}
+
+const snapshotPreview = ref<SnapshotPreview | null>(null);
+const snapshotError = ref("");
+let snapshotGeneration = 0, snapshotInFlight = 0;
+let snapshotPlan: { current: Kdbx; path: string; revision: number; item: SnapshotInfo } | null = null;
+function clearSnapshotPreview(): void { snapshotPreview.value = null; snapshotPlan = null; }
+function invalidateSnapshots(): void {
+  snapshotGeneration++;
+  if (snapshotInFlight) { snapshotInFlight = 0; busy.value = false; }
+  clearSnapshotPreview(); snapshotError.value = "";
+}
+watch([db, vaultPath], invalidateSnapshots, { flush: "sync" });
+watch(changeRevision, revision => {
+  if (snapshotPlan && snapshotPlan.revision !== revision) {
+    clearSnapshotPreview(); snapshotError.value = snapshotErrorMessage("SNAP_CHANGED");
+  }
+}, { flush: "sync" });
+function startSnapshotOperation() {
+  const current = db.value, path = vaultPath.value, k = engine.value;
+  if (!current || !path || !k) throw "SNAP_CANCELLED";
+  if (busy.value || saveBusy || syncing || snapshotInFlight || drawer.value.open) throw "SNAP_BUSY";
+  const run = ++snapshotGeneration; snapshotInFlight = run; busy.value = true; snapshotError.value = "";
+  const active = () => snapshotInFlight === run && snapshotGeneration === run && db.value === current && vaultPath.value === path;
+  return { current, path, k, active, check() { if (!active()) throw "SNAP_CANCELLED"; }, finish() { if (active()) { snapshotInFlight = 0; busy.value = false; } } };
+}
+async function listBackupSnapshots(): Promise<SnapshotList | null> {
+  const current = db.value, path = vaultPath.value;
+  if (!current || !path) return null;
+  snapshotError.value = "";
+  try {
+    const result = await invoke<SnapshotList>("snapshot_list", { vaultPath: path });
+    return db.value === current && vaultPath.value === path ? result : null;
+  } catch (e) { if (db.value === current && vaultPath.value === path) snapshotError.value = snapshotErrorMessage(e); return null; }
+}
+async function createBackupSnapshot(): Promise<boolean> {
+  let op: ReturnType<typeof startSnapshotOperation> | undefined;
+  try {
+    op = startSnapshotOperation(); clearSnapshotPreview();
+    const saved = await flushSave(); op.check();
+    if (!saved) throw "SNAP_LOCAL_SAVE";
+    const expectedStat = await statOf(op.path); op.check();
+    if (!expectedStat || !expectedStat.mtimeNs || !sameStat(expectedStat, knownStat.value)) throw "SNAP_CHANGED";
+    await invoke<SnapshotInfo>("snapshot_create", { vaultPath: op.path, expectedStat }); op.check();
+    return true;
+  } catch (e) { if (!op || op.active()) snapshotError.value = snapshotErrorMessage(e); return false; }
+  finally { op?.finish(); }
+}
+async function previewBackupSnapshot(item: SnapshotInfo): Promise<boolean> {
+  let op: ReturnType<typeof startSnapshotOperation> | undefined;
+  try {
+    op = startSnapshotOperation(); clearSnapshotPreview();
+    const saved = await flushSave(); op.check();
+    if (!saved) throw "SNAP_LOCAL_SAVE";
+    const revision = changeRevision.value;
+    const selected: SnapshotInfo = { ...item, stat: { ...item.stat } };
+    const bytes = await invoke<number[]>("snapshot_read", { vaultPath: op.path, id: selected.id, expectedStat: selected.stat }); op.check();
+    let previous: Kdbx;
+    try { previous = await op.k.Kdbx.load(new Uint8Array(bytes).buffer, op.current.credentials); }
+    catch (e) { throw classifyUnlockError(e, hasKeyFile.value).kind === "bad-key" ? "SNAP_BAD_KEY" : "SNAP_INVALID_FILE"; }
+    op.check();
+    if (revision !== changeRevision.value || hasUnsavedChanges.value) throw "SNAP_CHANGED";
+    const summary = summarizeSnapshot(op.current, previous);
+    snapshotPlan = { current: op.current, path: op.path, revision, item: selected };
+    snapshotPreview.value = { item: selected, summary };
+    return true;
+  } catch (e) { if (!op || op.active()) { clearSnapshotPreview(); snapshotError.value = snapshotErrorMessage(e); } return false; }
+  finally { op?.finish(); }
+}
+async function exportBackupSnapshot(targetPath: string): Promise<boolean> {
+  let op: ReturnType<typeof startSnapshotOperation> | undefined;
+  try {
+    op = startSnapshotOperation();
+    const plan = snapshotPlan;
+    if (!plan || plan.current !== op.current || plan.path !== op.path || plan.revision !== changeRevision.value || hasUnsavedChanges.value) throw "SNAP_CHANGED";
+    const saved = await flushSave(); op.check();
+    if (!saved) throw "SNAP_LOCAL_SAVE";
+    if (snapshotPlan !== plan || plan.revision !== changeRevision.value) throw "SNAP_CHANGED";
+    const expectedStat = await statOf(op.path); op.check();
+    if (!expectedStat || !expectedStat.mtimeNs || !sameStat(expectedStat, knownStat.value)) throw "SNAP_CHANGED";
+    // Native export buffers the selected version before archiving/rotating the current version.
+    await invoke("snapshot_export", { vaultPath: op.path, id: plan.item.id, expectedStat: plan.item.stat, currentStat: expectedStat, targetPath }); op.check();
+    return true;
+  } catch (e) { if (!op || op.active()) snapshotError.value = snapshotErrorMessage(e); return false; }
+  finally { op?.finish(); }
+}
+
+const webdavAvailability = ref<{ configured: boolean | null; loading: boolean; lastSyncedAt: number | null; error: string }>({ configured: null, loading: false, lastSyncedAt: null, error: "" });
+let webdavConfigGeneration = 0;
+function setWebdavConfigSummary(view: WebdavConfig): void {
+  webdavConfigGeneration++;
+  webdavAvailability.value = { configured: view.configured, loading: false, lastSyncedAt: view.lastSyncedAt, error: "" };
+}
+async function refreshWebdavAvailability(): Promise<void> {
+  const current = db.value, path = vaultPath.value, generation = ++webdavConfigGeneration;
+  if (!current || !path) { webdavAvailability.value = { configured: null, loading: false, lastSyncedAt: null, error: "" }; return; }
+  webdavAvailability.value = { ...webdavAvailability.value, loading: true, error: "" };
+  try {
+    const result = await invoke<WebdavConfig>("webdav_get_config", { vaultPath: path });
+    if (generation === webdavConfigGeneration && db.value === current && vaultPath.value === path) setWebdavConfigSummary(result);
+  } catch (e) {
+    if (generation === webdavConfigGeneration && db.value === current && vaultPath.value === path) webdavAvailability.value = { configured: null, loading: false, lastSyncedAt: null, error: webdavErrorMessage(e) };
+  }
+}
+watch([db, vaultPath], () => {
+  webdavConfigGeneration++;
+  webdavAvailability.value = { configured: null, loading: false, lastSyncedAt: null, error: "" };
+}, { flush: "sync" });
+
+/**
+ * kdbxweb 的 KdbxError.code（BadSignature / InvalidVersion / Unsupported /
+ * FileCorrupt / InvalidKey / MergeError）翻成人话。
+ * 分类结果同时给 UI 用：只有「文件本身有问题」才值得摆出「从备份恢复」按钮，
+ * 密码错的时候摆按钮只会让人以为能绕过密码。
+ */
+function classifyUnlockError(
+  e: unknown,
+  hasKeyFile: boolean
+): { kind: UnlockErrorKind; text: string } {
+  const raw = msg(e);
+  const rawCode = (e as { code?: unknown } | null)?.code;
+  const code =
+    typeof rawCode === "string"
+      ? rawCode
+      : (raw.match(/Error ([A-Za-z]+)/)?.[1] ?? "");
+
+  switch (code) {
+    case "InvalidKey":
+      return {
+        kind: "bad-key",
+        text: hasKeyFile ? "主密码或密钥文件不正确" : "主密码不正确",
+      };
+    case "BadSignature":
+      return {
+        kind: "not-kdbx",
+        text: "不是有效的 KDBX 文件（文件头签名对不上）",
+      };
+    case "InvalidVersion":
+      return {
+        kind: "corrupt",
+        text: "文件头的版本号读不出来，文件可能被截断或改坏了",
+      };
+    case "Unsupported":
+      return {
+        kind: "unsupported",
+        text: "这个库用了当前引擎不支持的 KDBX 版本或加密算法（可能由更新的 KeePass 生成）",
+      };
+    case "FileCorrupt":
+      return {
+        kind: "corrupt",
+        text: "库文件已损坏（写入中断、磁盘错误或网盘同步冲突都可能造成），可以从 .bak 备份恢复",
+      };
+    default:
+      // 兜底：老版本或异常路径只有文本，没有 code
+      if (/InvalidKey/i.test(raw)) {
+        return {
+          kind: "bad-key",
+          text: hasKeyFile ? "主密码或密钥文件不正确" : "主密码不正确",
+        };
+      }
+      if (/BadSignature|Not a KDBX|Invalid signature/i.test(raw)) {
+        return { kind: "not-kdbx", text: "不是有效的 KDBX 文件（文件头签名对不上）" };
+      }
+      if (/FileCorrupt|corrupt/i.test(raw)) {
+        return { kind: "corrupt", text: `库文件已损坏（${raw}），可以从 .bak 备份恢复` };
+      }
+      return { kind: "unknown", text: raw };
+  }
+}
+
+/** KDBX 文件头签名（小端）：Sig1 0x9AA2D903，Sig2 0xB54BFB67；KDB 1.x 的 Sig2 是 0xB54BFB65 */
+const SIG1 = "03d9a29a";
+const SIG2_KDBX = "67fb4bb5";
+const SIG2_KDB = "65fb4bb5";
+
+/**
+ * 解密前先看文件头。这样「选错文件」「文件空/被截断」「KeePass 1.x 老库」
+ * 都能给出准确说法，而不是统统报成「主密码不正确」。
+ */
+function headerProblem(
+  bytes: number[]
+): { kind: UnlockErrorKind; text: string } | null {
+  const hex = (from: number, to: number) =>
+    bytes
+      .slice(from, to)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  if (bytes.length === 0) {
+    return { kind: "corrupt", text: "文件是空的（0 字节），可能没写完或已被清空" };
+  }
+  if (bytes.length < 12) {
+    return { kind: "corrupt", text: "文件不足 12 字节，不是完整的密码库" };
+  }
+  if (hex(0, 4) !== SIG1) {
+    return {
+      kind: "not-kdbx",
+      text: "这不是 KDBX 密码库（文件头签名不对，可能选错了文件，或文件已被别的程序改写）",
+    };
+  }
+  const sig2 = hex(4, 8);
+  if (sig2 === SIG2_KDB) {
+    return {
+      kind: "old-kdb",
+      text: "这是 KeePass 1.x 的老格式（.kdb），KeyTree 只支持 KDBX；请先用 KeePass 2 另存为新格式",
+    };
+  }
+  if (sig2 !== SIG2_KDBX) {
+    return { kind: "not-kdbx", text: "文件头签名不对，不是有效的 KDBX 库" };
+  }
+  return null;
 }
 
 function tryLoad(
@@ -440,8 +968,9 @@ async function stashQuickUnlock(
   }
 }
 
-/** Windows Hello 快速解锁：Hello 验证通过后（由 UI 先调 hello_verify）用缓存凭据直接开库 */
+/** Windows Hello 验证与 DPAPI 取凭据由同一原生命令执行，前端不持有可绕过的验证门禁。 */
 async function helloUnlock(path: string): Promise<boolean> {
+  if (busy.value) return false;
   busy.value = true;
   error.value = "";
   try {
@@ -452,13 +981,20 @@ async function helloUnlock(path: string): Promise<boolean> {
     const keyFile = decoded.k ? new Uint8Array(decoded.k) : null;
     const ok = await openVault(path, decoded.p, keyFile);
     if (!ok) {
-      // 缓存凭据失效（改过密码 / 换过密钥文件）：清掉这个库的，避免按钮一直误导
-      await invoke("quick_unlock_clear", { vaultPath: path }).catch(() => {});
-      error.value = "快速解锁的缓存凭据已失效，请用主密码解锁";
+      // 文件 IO 或公开版本冲突不说明凭据失效，不能因此清除缓存。
+      if (errorKind.value === "bad-key") {
+        await invoke("quick_unlock_clear", { vaultPath: path }).catch(() => {});
+        error.value = "快速解锁的缓存凭据已失效，请用主密码解锁";
+      }
     }
     return ok;
   } catch (e) {
-    error.value = `快速解锁不可用：${msg(e)}，请用主密码解锁`;
+    const reason = msg(e);
+    error.value = reason.includes("HELLO_NOT_VERIFIED")
+      ? "Windows Hello 验证未通过或已取消，可继续使用主密码解锁"
+      : reason.includes("HELLO_UNAVAILABLE")
+        ? "Windows Hello 当前不可用，请用主密码解锁"
+        : "快速解锁不可用，请用主密码解锁";
     return false;
   } finally {
     busy.value = false;
@@ -472,10 +1008,29 @@ async function openVault(
 ): Promise<boolean> {
   busy.value = true;
   error.value = "";
+  errorKind.value = "none";
   status.value = "读取文件…";
   try {
     const k = await ensureEngine();
-    const bytes = await invoke<number[]>("read_vault", { path });
+    const readStat = await statOf(path);
+    let bytes: number[];
+    try {
+      bytes = await invoke<number[]>("read_vault", { path });
+    } catch (e) {
+      errorKind.value = "io";
+      error.value = `读不到文件：${msg(e)}`;
+      status.value = "";
+      return false;
+    }
+    // 先验文件头：能准确区分「选错文件」「文件被截断」「KeePass 1.x 老库」，
+    // 而不是把它们一律报成主密码不正确
+    const problem = headerProblem(bytes);
+    if (problem) {
+      errorKind.value = problem.kind;
+      error.value = `打不开这个库：${problem.text}`;
+      status.value = "";
+      return false;
+    }
     status.value = "解密中…";
 
     let loaded: Kdbx;
@@ -491,11 +1046,19 @@ async function openVault(
       note = "已忽略主密码首尾的空白字符";
     }
 
+    const finalReadStat = await statOf(path);
+    if (!readStat || !sameStat(readStat, finalReadStat)) throw new Error("读取或解密期间文件已变化，请重新选择并解锁");
+    resetSaveState();
+    cancelImport();
+    knownPublicData = publicDataSnapshot(k, loaded.header);
     db.value = loaded;
     vaultPath.value = path;
     keyFileBytes.value = keyFile;
     selectedGroupUuid.value = "all";
     query.value = "";
+    // 换库必须清图标缓存：host → 图标 id 是跨库不通用的 uuid
+    iconUrls.clear();
+    hostIcons.clear();
     rebuild();
     selectedUuid.value = visibleEntries.value[0]?.uuid ?? "";
     status.value = note;
@@ -503,18 +1066,23 @@ async function openVault(
     upsertVault(path);
     // note 非空说明 trim 重试才成功，生效密码是去空白后的那个
     void stashQuickUnlock(path, note ? password.trim() : password, keyFile);
-    // 开始盯文件（外部修改 → 自动合并）
-    knownStat.value = await statOf(path);
+    void recordAudit("unlock");
+    // 开始盯文件；版本必须与实际解密的字节对应。
+    knownStat.value = finalReadStat;
     void invoke("watch_vault", { path }).catch(() => {});
     return true;
   } catch (e) {
     status.value = "";
+    const classified = classifyUnlockError(e, !!keyFile);
+    errorKind.value = classified.kind;
     // 只针对「输入法全角 / 各种连字符变体」这类肉眼几乎看不出来的坑，
     // 别把中文主密码误判成可疑输入
-    const suspicious = /[\uFF01-\uFF5E\u3000\u2010-\u2015]/.test(password)
-      ? "；注意密码里有全角或连字符变体，可能和实际密码不是同一个字符"
-      : "";
-    error.value = `解锁失败：${unlockErrorText(e)}${suspicious}`;
+    const suspicious =
+      classified.kind === "bad-key" &&
+      /[\uFF01-\uFF5E\u3000\u2010-\u2015]/.test(password)
+        ? "；注意密码里有全角或连字符变体，可能和实际密码不是同一个字符"
+        : "";
+    error.value = `解锁失败：${classified.text}${suspicious}`;
     return false;
   } finally {
     busy.value = false;
@@ -544,6 +1112,9 @@ async function createVault(
     status.value = "写入磁盘…";
     await writeBytes(path, saved);
 
+    resetSaveState();
+    cancelImport();
+    knownPublicData = publicDataSnapshot(k, created.header);
     db.value = created;
     vaultPath.value = path;
     keyFileBytes.value = keyFile;
@@ -555,40 +1126,12 @@ async function createVault(
     settings.lastVaultPath = path;
     upsertVault(path);
     void stashQuickUnlock(path, password, keyFile);
+    void recordAudit("unlock");
     knownStat.value = await statOf(path);
     void invoke("watch_vault", { path }).catch(() => {});
     return true;
   } catch (e) {
     error.value = `创建失败：${msg(e)}`;
-    return false;
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function saveVault(): Promise<boolean> {
-  const current = db.value;
-  if (!current || !vaultPath.value) return false;
-  busy.value = true;
-  try {
-    // 保存前检测（spec §8.2 双保险）：watcher 漏掉的外部变更在这里兜住
-    if (knownStat.value) {
-      const stat = await statOf(vaultPath.value);
-      if (stat && !sameStat(stat, knownStat.value)) {
-        busy.value = false;
-        const merged = await mergeFromDisk();
-        if (merged) {
-          status.value = "检测到外部修改，已合并后再保存";
-        }
-        busy.value = true;
-      }
-    }
-    const saved = await current.save();
-    await writeBytes(vaultPath.value, saved);
-    status.value = `已保存 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
-    return true;
-  } catch (e) {
-    error.value = `保存失败：${msg(e)}`;
     return false;
   } finally {
     busy.value = false;
@@ -697,17 +1240,25 @@ async function toggleFavorite(uuid: string): Promise<void> {
 }
 
 /**
- * 使用一次（复制密码/动态码/Auto-Type）：usageCount +1 并落盘。
+ * 使用一次（复制密码/动态码/Auto-Type）：usageCount +1，500ms 合并落盘。
  * 快速面板按「最近使用 > 收藏」排序（spec §6.2），这就是排序依据。
+ *
+ * 注意只动 lastAccessTime，不用 times.update()——那会把 lastModTime 也刷成现在，
+ * 复制一次密码就把条目顶到「最近修改」最前面，语义不对。
  */
 async function touchUsage(uuid: string): Promise<void> {
   const entry = entryRefs.get(uuid);
   if (!entry) return;
   try {
     entry.times.usageCount = (entry.times.usageCount ?? 0) + 1;
-    entry.times.update();
-    await saveVault();
-    rebuild();
+    entry.times.lastAccessTime = new Date();
+    // 只改这一条 VM，不整库 rebuild：复制动作必须轻
+    const vm = entries.value.find((item) => item.uuid === uuid);
+    if (vm) {
+      vm.usageCount = entry.times.usageCount;
+      vm.lastUsedAt = entry.times.lastAccessTime;
+    }
+    saveSoon();
   } catch {
     // 统计失败不影响主流程
   }
@@ -739,7 +1290,7 @@ async function maybeFetchIcon(uuid: string): Promise<boolean> {
       // KdbxUuid 构造器接受 base64 id 字符串
       entry.customIcon = new engine.value!.KdbxUuid(known);
       entry.times.update();
-      await saveVault();
+      saveSoon();
       rebuild();
       return true;
     }
@@ -748,12 +1299,12 @@ async function maybeFetchIcon(uuid: string): Promise<boolean> {
 
   try {
     const bytes = await fetchFavicon(fieldText(entry, "URL"));
-    if (!bytes || !db.value) return false;
+    if (!bytes || db.value !== current || entryRefs.get(uuid) !== entry) return false;
     const iconUuid = engine.value!.KdbxUuid.random();
     db.value.meta.customIcons.set(iconUuid.id, { data: bytes, name: host });
     entry.customIcon = iconUuid;
     hostIcons.set(host, iconUuid.id);
-    await saveVault();
+    saveSoon();
     rebuild();
     status.value = `已更新站点图标：${host}`;
     return true;
@@ -805,6 +1356,7 @@ async function exportCsv(path: string): Promise<boolean> {
         url: vm.url,
         username: vm.username,
         password: fieldText(entryRefs.get(vm.uuid)!, "Password"),
+        notes: vm.notes,
       }));
     const text = buildChromeCsv(rows);
     await invoke("write_vault", {
@@ -832,62 +1384,99 @@ function ensureGroupPath(parts: string[]): KdbxGroup {
   return node;
 }
 
-/**
- * 导入 CSV：表头自动识别（Chrome/Edge 的 name,url,username,password、
- * KeePassXC 的 Group,Title,Username,Password,URL,Notes 都行），Group 列可分层建组。
- * 返回导入条数；失败返回 0 并把原因写进 error。
- */
-async function importCsv(path: string): Promise<number> {
+export const importPreview = ref<ImportRow[]>([]);
+const importApplied = ref(false);
+const importCount = ref(0);
+let importOwner: Kdbx | null = null;
+let importingCsv = false;
+function groupPath(group: KdbxGroup | undefined): string {
+  const parts: string[] = [];
+  while (group?.parentGroup) { parts.unshift(group.name ?? ""); group = group.parentGroup; }
+  return parts.join("/");
+}
+function existingImportRecords(): ImportRecord[] {
+  return entries.value.filter(e => !e.inTrash).map(e => ({
+    title: e.title, username: e.username, password: fieldText(entryRefs.get(e.uuid)!, "Password"),
+    url: e.url, notes: e.notes, totp: fieldText(entryRefs.get(e.uuid)!, "otp"),
+    group: groupPath(entryRefs.get(e.uuid)?.parentGroup),
+  }));
+}
+function cancelImport(): void {
+  importPreview.value = [];
+  importOwner = null;
+  importApplied.value = false;
+  importCount.value = 0;
+}
+async function previewCsv(path: string): Promise<boolean> {
   const current = db.value;
-  if (!current) return 0;
+  if (!current || importingCsv) return false;
+  cancelImport();
+  error.value = "";
   try {
     const bytes = await invoke<number[]>("read_vault", { path });
-    const text = new TextDecoder("utf-8").decode(new Uint8Array(bytes));
-    const rows = parseCsv(text);
-    if (rows.length < 2) throw new Error("CSV 里没有数据行");
-    const cols = detectColumns(rows[0]);
-    if (!cols) {
-      throw new Error("认不出表头：需要包含 title/name、username、password、url 之类的列");
-    }
-    let imported = 0;
-    for (const row of rows.slice(1)) {
-      const get = (idx: number): string =>
-        idx >= 0 && row[idx] ? row[idx].trim() : "";
-      const title = get(cols.title);
-      const username = get(cols.username);
-      const password = get(cols.password);
-      if (!title && !username && !password) continue;
-      const group =
-        cols.group >= 0
-          ? ensureGroupPath((row[cols.group] ?? "").split("/"))
-          : current.getDefaultGroup();
-      const entry = current.createEntry(group);
-      applyDraft(entry, {
-        title: title || "(无标题)",
-        username,
-        password,
-        url: get(cols.url),
-        notes: get(cols.notes),
-        tags: "",
-        totp: get(cols.totp),
-        groupUuid: group.uuid.id,
-        expires: false,
-        expiryDate: "",
+    if (db.value !== current) return false;
+    if (bytes.length > 20 * 1024 * 1024) throw new Error("CSV 文件过大，请拆分导入");
+    importPreview.value = analyzeImport(new TextDecoder().decode(new Uint8Array(bytes)), existingImportRecords());
+    importOwner = current;
+    return true;
+  } catch (e) { error.value = `预览失败：${msg(e)}`; return false; }
+}
+async function confirmImport(): Promise<number> {
+  const current = db.value;
+  if (!current || importOwner !== current || importingCsv) return 0;
+  importingCsv = true;
+  error.value = "";
+  try {
+    if (!importApplied.value) {
+      const chosen = importPreview.value.filter(row => row.selected && row.classification !== "invalid");
+      if (!chosen.length) { error.value = "请选择要导入的条目"; return 0; }
+      // 先全部验证，再修改库；不静默覆盖任何已有条目。
+      for (const row of chosen) validateEntryDraft({ ...row.record, tags: "", groupUuid: "", expires: false, expiryDate: "" });
+      // 预览后库可能变化；完全相同的内容仍跳过。
+      const kinds = classifyImportRecords(chosen.map(row => row.record), existingImportRecords());
+      let needsConsent = false;
+      chosen.forEach((row, index) => {
+        if (kinds[index] === "conflict" && row.classification !== "conflict") {
+          row.classification = "conflict"; row.selected = false; needsConsent = true;
+        }
       });
-      imported++;
+      if (needsConsent) { error.value = "预览后出现新的账号冲突，请重新选择冲突行，再确认导入"; return 0; }
+      const analyzed = chosen.map((row, index) => ({ ...row, classification: kinds[index] }));
+      let count = 0;
+      for (const row of analyzed) {
+        if (row.classification === "duplicate") continue;
+        const r = row.record, group = r.group ? ensureGroupPath(r.group.split("/")) : current.getDefaultGroup();
+        const entry = current.createEntry(group);
+        applyDraft(entry, { ...r, tags: "", groupUuid: group.uuid.id, expires: false, expiryDate: "" });
+        count++;
+      }
+      importApplied.value = true;
+      importCount.value = count;
+      rebuild();
     }
-    rebuild();
-    await saveVault();
-    status.value = `已导入 ${imported} 条`;
-    return imported;
-  } catch (e) {
-    error.value = `导入失败：${msg(e)}`;
-    return 0;
-  }
+    if (importCount.value && !(await saveVault())) return 0;
+    const count = importCount.value;
+    status.value = count ? `已导入并保存 ${count} 条` : "所选内容已存在，未重复导入";
+    cancelImport();
+    return count;
+  } catch (e) { error.value = `导入失败：${msg(e)}`; return 0; }
+  finally { importingCsv = false; }
+}
+async function importCsv(path: string): Promise<number> {
+  if (!(await previewCsv(path))) return 0;
+  return confirmImport();
+}
+
+function validateEntryDraft(draft: EntryDraft): void {
+  if (!draft.title.trim()) throw new Error("标题不能为空");
+  if (draft.customFields) validateCustomFields(draft.customFields);
+
+  if (draft.totp.trim() && !parseTotpInput(draft.totp)) throw new Error("TOTP 密钥无法识别");
 }
 
 function pushHistory(entry: KdbxEntry): void {
   entry.pushHistory();
+  copySnapshotMetadata(entry, entry.history[entry.history.length - 1]);
   const overflow = entry.history.length - HISTORY_LIMIT;
   if (overflow > 0) entry.removeHistory(0, overflow);
 }
@@ -895,13 +1484,23 @@ function pushHistory(entry: KdbxEntry): void {
 function applyDraft(entry: KdbxEntry, draft: EntryDraft): void {
   const k = engine.value;
   if (!k) return;
+  // 字段操作先在副本上验证，失败不能半改标准字段。
+  if (draft.customFields) {
+    const next = new Map(entry.fields);
+    applyCustomFields(next, draft.customFields, draft.removedFields ?? [], value => k.ProtectedValue.fromString(value));
+    entry.fields = next;
+    // 草稿可能因写盘失败被再次提交；身份应跟随已经应用到内存的重命名。
+    for (const field of draft.customFields) field.originalName = field.name.trim();
+    draft.removedFields = [];
+  }
+  if (draft.autoTypeSequence !== undefined) entry.autoType.defaultSequence = draft.autoTypeSequence.trim() || undefined;
   entry.fields.set("Title", draft.title.trim());
   entry.fields.set("UserName", draft.username.trim());
   entry.fields.set("Password", k.ProtectedValue.fromString(draft.password));
   entry.fields.set("URL", draft.url.trim());
   entry.fields.set("Notes", draft.notes);
   if (draft.totp.trim()) {
-    entry.fields.set("otp", draft.totp.trim());
+    entry.fields.set("otp", k.ProtectedValue.fromString(normalizeTotpInput(draft.totp)));
   } else {
     entry.fields.delete("otp");
   }
@@ -926,12 +1525,18 @@ async function addEntry(draft: EntryDraft): Promise<string | null> {
   if (!current) return null;
   error.value = "";
   try {
+    validateEntryDraft(draft);
+    if (draft.autoTypeSequence !== undefined) validateSequence(draft.autoTypeSequence);
     const group = groupRefs.get(draft.groupUuid) ?? current.getDefaultGroup();
     const entry = current.createEntry(group);
     applyDraft(entry, draft);
     rebuild();
     selectedUuid.value = entry.uuid.id;
-    await saveVault();
+    // 新建已经存在于内存；失败后将原抽屉指向它，重试不得再创建一条。
+    if (drawer.value.open && drawer.value.mode === "create") {
+      drawer.value = { open: true, mode: "edit", uuid: entry.uuid.id };
+    }
+    if (!(await saveVault())) return null;
     // 站点图标后台补抓，不阻塞保存
     void maybeFetchIcon(entry.uuid.id);
     return entry.uuid.id;
@@ -941,21 +1546,49 @@ async function addEntry(draft: EntryDraft): Promise<string | null> {
   }
 }
 
+/** 比较规范化后的表单，不缓存明文；相同失败草稿重试不能重复淘汰历史。 */
+function matchesDraft(uuid: string, draft: EntryDraft): boolean {
+  const before = draftOf(uuid);
+  if (!before) return false;
+  const tags = draft.tags.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean).join(", ");
+  const normalizeFields = (fields: CustomFieldDraft[]) => fields.map(f => [f.name.trim(), f.value, f.protected]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  const extensionsMatch = (draft.customFields === undefined || JSON.stringify(normalizeFields(before.customFields ?? [])) === JSON.stringify(normalizeFields(draft.customFields))) &&
+    (draft.autoTypeSequence === undefined || (before.autoTypeSequence ?? "") === draft.autoTypeSequence.trim()) &&
+    !(draft.removedFields ?? []).some(name => entryRefs.get(uuid)?.fields.has(name));
+  return extensionsMatch && before.title === draft.title.trim() &&
+    before.username === draft.username.trim() &&
+    before.password === draft.password &&
+    before.url === draft.url.trim() &&
+    before.notes === draft.notes &&
+    before.tags === tags &&
+    before.totp === normalizeTotpInput(draft.totp) &&
+    before.groupUuid === draft.groupUuid &&
+    before.expires === draft.expires &&
+    (!draft.expires || before.expiryDate === draft.expiryDate);
+}
+
 async function updateEntry(uuid: string, draft: EntryDraft): Promise<boolean> {
   const current = db.value;
   const entry = entryRefs.get(uuid);
   if (!current || !entry) return false;
   error.value = "";
   try {
-    const target = groupRefs.get(draft.groupUuid);
-    if (target && entry.parentGroup?.uuid.id !== target.uuid.id) {
-      current.move(entry, target);
+    validateEntryDraft(draft);
+    if (draft.autoTypeSequence !== undefined && draft.autoTypeSequence !== (entry.autoType.defaultSequence ?? "")) validateSequence(draft.autoTypeSequence);
+    // 验证自定义字段碰撞，早于移动/压历史；失败不改变当前条目。
+    if (draft.customFields && engine.value) applyCustomFields(new Map(entry.fields), draft.customFields, draft.removedFields ?? [], value => engine.value!.ProtectedValue.fromString(value));
+    const retryUnchanged = hasUnsavedChanges.value && matchesDraft(uuid, draft);
+    if (!retryUnchanged) {
+      const target = groupRefs.get(draft.groupUuid);
+      if (target && entry.parentGroup?.uuid.id !== target.uuid.id) {
+        current.move(entry, target);
+      }
+      pushHistory(entry);
+      applyDraft(entry, draft);
+      rebuild();
     }
-    pushHistory(entry);
-    applyDraft(entry, draft);
-    rebuild();
     selectedUuid.value = uuid;
-    await saveVault();
+    if (!(await saveVault())) return false;
     // 网址变了才重新抓图标（maybeFetchIcon 内部按 host 缓存自行判断）
     void maybeFetchIcon(uuid);
     return true;
@@ -1119,6 +1752,9 @@ function draftOf(uuid: string): EntryDraft | null {
     groupUuid: entry.parentGroup?.uuid.id ?? "",
     expires: !!entry.times.expires,
     expiryDate: expiry ? dateInputValue(expiry) : "",
+    autoTypeSequence: entry.autoType.defaultSequence ?? "",
+    customFields: [...entry.fields].filter(([name]) => !isReservedField(name)).map(([name, value]) => ({ name, originalName: name, value: typeof value === "string" ? value : value.getText(), protected: typeof value !== "string" })),
+    removedFields: [],
   };
 }
 
@@ -1129,7 +1765,7 @@ function totpConfigOf(uuid: string): TotpConfig | null {
 
   const otp = fieldText(entry, "otp").trim();
   if (otp) {
-    const parsed = parseOtpauth(otp);
+    const parsed = parseTotpInput(otp);
     if (parsed) return parsed;
   }
 
@@ -1163,6 +1799,7 @@ async function autoType(uuid: string): Promise<boolean> {
     await invoke("auto_type", { parts });
     void touchUsage(uuid);
     status.value = "已发送自动输入";
+    void recordAudit("auto-type", uuid);
     return true;
   } catch (e) {
     error.value = `自动输入失败：${msg(e)}`;
@@ -1170,39 +1807,65 @@ async function autoType(uuid: string): Promise<boolean> {
   }
 }
 
-/** 历史记录（新的在前） */
+const historyPending = ref(false);
+watch(hasUnsavedChanges, dirty => { if (!dirty) historyPending.value = false; });
+let historyMutating = false;
+
+/** 历史记录（新的在前）；id 只代表本会话中的实际快照，不依赖数组位置或时间戳。 */
 function historyOf(uuid: string): HistoryItem[] {
-  const entry = entryRefs.get(uuid);
-  if (!entry) return [];
-  return entry.history
-    .map((snapshot, index) => ({
-      index,
-      title: fieldText(snapshot, "Title"),
-      username: fieldText(snapshot, "UserName"),
-      at: snapshot.times.lastModTime ?? null,
-    }))
-    .reverse();
+  return (entryRefs.get(uuid)?.history ?? []).map((snapshot, index) => ({
+    id: historyToken(snapshot), note: historyNote(snapshot), index,
+    title: fieldText(snapshot, "Title"), username: fieldText(snapshot, "UserName"),
+    at: snapshot.times.lastModTime ?? null,
+  })).reverse();
 }
 
-/** 把某条历史快照写回当前条目（当前状态会先入历史，可再撤回） */
-async function restoreHistory(uuid: string, index: number): Promise<void> {
+async function mutateHistory(uuid: string, id: string, action: (entry: KdbxEntry, index: number) => void, message: string): Promise<boolean> {
+  if (historyMutating || busy.value || historyPending.value) return false;
   const entry = entryRefs.get(uuid);
-  if (!entry) return;
-  const snapshot = entry.history[index];
-  if (!snapshot) return;
+  if (!entry) return false;
+  historyMutating = true;
   error.value = "";
   try {
-    pushHistory(entry);
-    entry.fields = new Map(snapshot.fields);
-    entry.tags = [...snapshot.tags];
-    entry.times.update();
+    const index = resolveHistory(entry, id);
+    action(entry, index);
     rebuild();
-    selectedUuid.value = uuid;
-    await saveVault();
-    status.value = "已恢复到该历史版本";
+    const ok = await saveVault();
+    historyPending.value = !ok;
+    if (ok) status.value = message;
+    return ok;
   } catch (e) {
-    error.value = `恢复历史失败：${msg(e)}`;
-  }
+    error.value = `历史操作失败：${msg(e)}`;
+    return false;
+  } finally { historyMutating = false; }
+}
+
+function setHistoryNote(uuid: string, id: string, text: string): Promise<boolean> {
+  return mutateHistory(uuid, id, (entry, index) => writeHistoryNote(entry.history[index], text), "历史备注已保存");
+}
+
+function deleteHistory(uuid: string, id: string): Promise<boolean> {
+  return mutateHistory(uuid, id, (entry, index) => entry.removeHistory(index), "已删除所选历史版本");
+}
+
+function restoreHistory(uuid: string, id: string): Promise<boolean> {
+  return mutateHistory(uuid, id, (entry, index) => {
+    const snapshot = entry.history[index];
+    pushHistory(entry);
+    entry.copyFrom(snapshot);
+    entry.times.update();
+  }, "已恢复到该历史版本");
+}
+
+async function retryHistorySave(): Promise<boolean> {
+  if (historyMutating || busy.value) return false;
+  historyMutating = true;
+  busy.value = true;
+  try {
+    const ok = await flushSave();
+    historyPending.value = !ok;
+    return ok;
+  } finally { historyMutating = false; busy.value = false; }
 }
 
 function selectEntry(uuid: string): void {
@@ -1231,13 +1894,35 @@ function closeDrawer(): void {
   drawer.value.open = false;
 }
 
-function lock(): void {
-  // 注意：快速解锁密钥副本此时不删——它是 DPAPI 密文，锁定态下仍可用于
-  // Hello 快速解锁（spec §7.1 日常体验）；真正弃用发生在改密 / 换密钥文件 / 退出应用
-  if (vaultPath.value) {
-    void invoke("watch_vault", { path: null }).catch(() => {});
+/**
+ * 手动锁定/切库先确认落盘，失败保留解密态供重试或另存。
+ * 锁屏/休眠/空闲锁定传 force：保存失败也必须清除解密态，并保留明确警告。
+ * 返回值只表示是否已经锁定，不表示强制锁定前保存一定成功。
+ */
+async function lock(options: { force?: boolean } = {}): Promise<boolean> {
+  invalidateWebdavSync();
+  invalidateSnapshots();
+  // Before any asynchronous save, cancel injection and conditionally clear only our clipboard.
+  void invoke("cancel_auto_type").catch(() => {});
+  void invoke("clear_secret_clipboard").catch(() => { toast("锁定时剪贴板清理失败，请手动清理", 6000); });
+  const current = db.value;
+  const flushed = await flushSave();
+  // 并行锁定已完成时，直接回报实际状态，不覆盖另一调用的失败警告。
+  if (db.value !== current) return !unlocked.value;
+  if (!flushed && !options.force) {
+    if (!error.value) error.value = "仍有未保存的修改，已取消锁定，请重试保存或另存 KDBX 副本";
+    status.value = "锁定已取消：修改尚未全部写入磁盘";
+    return false;
   }
+  const lastSaveError = error.value;
+  // 只有真正执行锁定才停 watcher，取消锁定时保留外部变更监听。
+  void invoke("watch_vault", { path: null }).catch(() => {});
+  cancelScheduledSave();
+  resetSaveState();
+  cancelImport();
+  favoritesOnly.value = false;
   knownStat.value = null;
+  knownPublicData = "";
   db.value = null;
   vaultPath.value = "";
   keyFileBytes.value = null;
@@ -1246,16 +1931,95 @@ function lock(): void {
   entryRefs.clear();
   groupRefs.clear();
   trash.value = null;
+  iconUrls.clear();
+  hostIcons.clear();
   query.value = "";
   selectedGroupUuid.value = "all";
   selectedUuid.value = "";
   drawer.value.open = false;
+  historyPending.value = false;
   error.value = "";
   status.value = "";
+  if (!flushed) {
+    error.value = `为保护密码库已强制锁定，但最近的修改未能保存${lastSaveError ? `：${lastSaveError}` : ""}`;
+  }
+  return true;
+}
+
+/** 查询同目录滚动备份（解锁失败时决定要不要给「从备份恢复」入口） */
+function backupInfoOf(
+  path: string
+): Promise<{ exists: boolean; mtimeMs: number; size: number }> {
+  return invoke<{ exists: boolean; mtimeMs: number; size: number }>("backup_info", {
+    path,
+  }).catch(() => ({ exists: false, mtimeMs: 0, size: 0 }));
+}
+
+/**
+ * 用 `<库>.kdbx.bak` 覆盖当前文件（spec §7 损坏库的恢复路径）。
+ * 损坏的原文件会被改名成 `.corrupt-<时间戳>` 留证，不会直接删。
+ */
+async function restoreBackup(path: string): Promise<boolean> {
+  error.value = "";
+  try {
+    await invoke("restore_backup", { path });
+    status.value = "已用备份覆盖当前文件，请重新解锁";
+    return true;
+  } catch (e) {
+    error.value = `恢复备份失败：${msg(e)}`;
+    return false;
+  }
+}
+
+function vaultHealth() {
+  return healthSummary(entries.value.filter(e => !e.inTrash).map(e => ({ id: e.uuid, password: fieldText(entryRefs.get(e.uuid)!, "Password"), expires: e.expires, expiryTime: e.expiryTime, hasTotp: !!totpConfigOf(e.uuid) })));
+}
+function vaultKdfDetails() { return db.value ? kdfDetails(db.value.header) : []; }
+async function verifyCurrentBackup(): Promise<{ kind: string; text: string }> {
+  const current = db.value, path = vaultPath.value, k = engine.value;
+  if (!current || !k || !path) return { kind: "cancelled", text: "请先解锁" };
+  try {
+    const info = await invoke<{ exists: boolean; mtimeMs: number; size: number }>("backup_info", { path });
+    if (!info.exists) return { kind: "missing", text: "尚无备份文件" };
+    const bytes = await invoke<number[]>("read_vault", { path: `${path}.bak` });
+    const problem = headerProblem(bytes);
+    if (problem) return { kind: "invalid", text: "备份文件头损坏或版本不支持" };
+    await k.Kdbx.load(new Uint8Array(bytes).buffer, current.credentials);
+    if (db.value !== current || vaultPath.value !== path) return { kind: "cancelled", text: "密码库已切换或锁定，请重新检查" };
+    const after = await backupInfoOf(path);
+    if (after.mtimeMs !== info.mtimeMs || after.size !== info.size) return { kind: "changed", text: "备份在验证期间变化，请重新验证" };
+    return { kind: "valid", text: "这份备份可用：已用当前凭据成功解密（仅验证，未写入）" };
+  } catch (e) {
+    if (db.value !== current || vaultPath.value !== path) return { kind: "cancelled", text: "密码库已切换或锁定" };
+    const kind = classifyUnlockError(e, false).kind;
+    return { kind, text: kind === "bad-key" ? "当前凭据无法打开备份：备份可能使用旧密码或密钥文件，不代表文件损坏" : kind === "corrupt" || kind === "unsupported" ? "备份损坏或格式不受支持" : "备份读取或验证失败，请检查文件权限" };
+  }
+}
+
+function getMasterHint(): MasterHintResult {
+  return db.value ? readMasterHint(db.value.header) : { kind: "none", text: "" };
+}
+async function setMasterHint(text: string): Promise<boolean> {
+  const current = db.value, k = engine.value;
+  if (!current || !k) { error.value = "请先解锁密码库后再编辑提示"; return false; }
+  if (busy.value || saveBusy || syncing) { error.value = "密码库正在处理其他操作，请稍后再保存提示"; return false; }
+  error.value = "";
+  try {
+    writeMasterHint(k, current.header, text);
+    const saved = await saveVault();
+    if (!saved || db.value !== current) return false;
+    status.value = text.trim() ? "主密码提示已写入 KDBX（公开可读）" : "当前库的主密码提示已删除，旧备份可能仍保留旧提示";
+    return true;
+  } catch (e) {
+    // 规则错误是固定文案，不包含输入的提示内容。
+    error.value = e instanceof Error ? e.message : "提示保存失败，请重试";
+    return false;
+  }
 }
 
 function clearError(): void {
   error.value = "";
+  errorKind.value = "none";
 }
 
 export function useVault() {
@@ -1273,8 +2037,25 @@ export function useVault() {
     selectedUuid,
     query,
     sortMode,
+    favoritesOnly,
     busy,
+    hasUnsavedChanges,
+    webdavState,
+    webdavAvailability,
+    refreshWebdavAvailability,
+    setWebdavConfigSummary,
+    snapshotPreview,
+    snapshotError,
+    listBackupSnapshots,
+    createBackupSnapshot,
+    previewBackupSnapshot,
+    exportBackupSnapshot,
+    clearSnapshotPreview,
+    cancelBackupOperations: invalidateSnapshots,
+    syncWebdav,
+    resetWebdavSyncStatus,
     error,
+    errorKind,
     status,
     drawer,
     pendingGroup,
@@ -1282,6 +2063,8 @@ export function useVault() {
     recycleBinEnabled,
     selectedIsTrash,
     hasKeyFile,
+    getMasterHint,
+    setMasterHint,
     // 动作
     openVault,
     helloUnlock,
@@ -1289,9 +2072,22 @@ export function useVault() {
     exportKdbx,
     exportCsv,
     importCsv,
+    importPreview,
+    importApplied,
+    importCount,
+    previewCsv,
+    confirmImport,
+    cancelImport,
+    vaultHealth,
+    vaultKdfDetails,
+    verifyCurrentBackup,
     syncExternalChanges,
     createVault,
     saveVault,
+    saveSoon,
+    flushSave,
+    backupInfoOf,
+    restoreBackup,
     changeMasterPassword,
     applyKeyFile,
     createKeyFile,
@@ -1310,6 +2106,10 @@ export function useVault() {
     autoType,
     historyOf,
     restoreHistory,
+    setHistoryNote,
+    deleteHistory,
+    historyPending,
+    retryHistorySave,
     toggleFavorite,
     touchUsage,
     selectEntry,
