@@ -307,7 +307,7 @@ This library is used in [KeeWeb](https://app.keeweb.info)
 
 We also provide a template for [HexFiend](https://github.com/ridiculousfish/HexFiend)
 to explore the contents of KDBX files, you can find it
-[here](format).
+[in the upstream repository](https://github.com/keeweb/kdbxweb/tree/master/format).
 
 ## License
 

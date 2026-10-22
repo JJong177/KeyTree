@@ -30,13 +30,23 @@ logs/
 *.log.*
 *.dmp
 *.tmp
-/keytree/release/验收报告.md
+/keytree/release/
 /assets/readme/preview.html
 
 # 一次性密码库工具仅留本地 / one-off local vault utilities
 /keytree/scripts/recover-master.mjs
 /keytree/scripts/read-external-vault.mjs
 /keytree/scripts/gen-external-vault.py
+
+# 手工演示和互操作工具 / local-only manual demo and interop tools
+/keytree/scripts/gen-test-vault.mjs
+/keytree/scripts/make-ui-fixture.mjs
+/keytree/scripts/verify-interop.py
+
+# 第三方可选资料（保留运行文件、类型、源码和许可证）
+# Optional upstream extras; runtime, types, source and license remain tracked
+/keytree/vendor/kdbxweb/format/
+/keytree/vendor/kdbxweb/release-notes.md
 
 # 本机凭据与密码库附属文件 / local credentials and vault sidecars
 .env

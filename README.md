@@ -11,8 +11,7 @@
 <p align="center">
   <a href="#开始使用">开始使用</a> ·
   <a href="#同步与备份">同步与备份</a> ·
-  <a href="#开发与构建">开发与构建</a> ·
-  <a href="keytree/release/使用说明.md">安装包说明</a>
+  <a href="#开发与构建">开发与构建</a>
 </p>
 
 **KeyTree** 是一款面向 Windows 的本地优先密码管理器。把账号、密码和动态验证码整理在自己的 `.kdbx` 加密文件中，通过分组与搜索找到它们，用快速面板、复制或自动输入完成日常登录。
@@ -79,24 +78,22 @@
 
 ### 1. 安装 KeyTree
 
-运行项目提供的 `KeyTree-Setup.exe`，按向导安装后启动 **KeyTree**。安装版无需 Node.js、Rust 或开发服务器。
+取得维护者提供的 `KeyTree-Setup.exe` 后，按向导安装并启动 **KeyTree**。安装版无需 Node.js、Rust 或开发服务器；本仓库只保存源码，不包含安装包，也未发布 GitHub Release。需要自行构建时见下方“开发与构建”。
 
 - **系统依赖：** Microsoft Edge WebView2 Runtime；缺少时安装器会尝试联网补装。
 - **安装语言：** 简体中文或 English，仅影响安装向导，不改变应用界面语言。
-- **来源核对：** 当前安装包未签名，Windows 可能提示“未知发布者”或 SmartScreen 警告。请核对来源和随包 SHA-256；校验和不等于安全审计。
+- **来源核对：** 当前安装包未签名，Windows 可能提示“未知发布者”或 SmartScreen 警告。请核对来源；如发行方提供 SHA-256，再进行对照校验，校验和不等于安全审计。
 
 <details>
 <summary>如何校验安装包？</summary>
 
-在安装包所在目录执行，并与随包的 `SHA256SUMS.txt` 对照：
+如发行方提供 SHA-256，可在安装包所在目录执行以下命令并对照结果：
 
 ```powershell
 Get-FileHash .\KeyTree-Setup.exe -Algorithm SHA256
 ```
 
 </details>
-
-安装细节见 [使用说明](keytree/release/使用说明.md)。
 
 ### 2. 建立第一个密码库
 
@@ -203,8 +200,7 @@ npm run tauri -- build
     ├── src-tauri/            # Rust 原生层与打包配置
     ├── vendor/kdbxweb/       # 本地 KDBX 依赖
     ├── scripts/              # 开发与回归脚本
-    ├── docs/                 # 同步、备份说明与流程图
-    └── release/              # 发布说明
+    └── docs/                 # 同步、备份说明与流程图
 ```
 
 </details>

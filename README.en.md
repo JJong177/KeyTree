@@ -11,8 +11,7 @@
 <p align="center">
   <a href="#getting-started">Getting started</a> ·
   <a href="#sync-and-backups">Sync and backups</a> ·
-  <a href="#development">Development</a> ·
-  <a href="keytree/release/usage.en.md">Installation guide</a>
+  <a href="#development">Development</a>
 </p>
 
 **KeyTree** is a local-first password manager for Windows. Organize accounts, passwords and one-time codes in your own encrypted `.kdbx` file. Find entries with groups and search, then use the quick panel, copy actions or auto-type for everyday sign-ins.
@@ -79,24 +78,22 @@ Windows Hello local quick unlock, idle locking, timed clipboard clearing and scr
 
 ### 1. Install KeyTree
 
-Run the project-provided `KeyTree-Setup.exe`, follow the wizard and launch **KeyTree**. The installed app does not require Node.js, Rust or a development server.
+Once you obtain a maintainer-provided `KeyTree-Setup.exe`, follow the wizard and launch **KeyTree**. The installed app does not require Node.js, Rust or a development server. This repository contains source code only: it does not include an installer or a published GitHub Release. To build it yourself, see Development below.
 
 - **Runtime:** Microsoft Edge WebView2 Runtime. The installer attempts an online installation if it is missing.
 - **Installer language:** Simplified Chinese or English. This changes the installation wizard only, not the application UI.
-- **File source:** the current installer is unsigned. Windows may display an unknown-publisher or SmartScreen warning. Check the source and supplied SHA-256; a checksum is not a security audit.
+- **File source:** the current installer is unsigned. Windows may display an unknown-publisher or SmartScreen warning. Check the source and, if the distributor provides a SHA-256, compare it. A checksum is not a security audit.
 
 <details>
 <summary>Verify the installer checksum</summary>
 
-Run this in the installer directory and compare the result with the supplied `SHA256SUMS.txt`:
+If the distributor provides a SHA-256, run this in the installer directory and compare the result:
 
 ```powershell
 Get-FileHash .\KeyTree-Setup.exe -Algorithm SHA256
 ```
 
 </details>
-
-See the concise [installation guide](keytree/release/usage.en.md).
 
 ### 2. Create your first vault
 
@@ -203,8 +200,7 @@ Default bundle output: `keytree/src-tauri/target/release/bundle/`. These command
     ├── src-tauri/            # Rust native layer and packaging
     ├── vendor/kdbxweb/       # Vendored KDBX dependency
     ├── scripts/              # Development and regression scripts
-    ├── docs/                 # Sync and backup quick guides
-    └── release/              # Installation notes
+    └── docs/                 # Sync and backup quick guides
 ```
 
 </details>
