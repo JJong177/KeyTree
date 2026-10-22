@@ -9,6 +9,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe"><strong>⬇ 下载 Windows x64 安装包 · v0.1.0</strong></a><br />
+  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.1.0">发布说明</a> ·
+  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/SHA256SUMS.txt">SHA-256 校验文件</a>
+</p>
+
+<p align="center">
   <a href="#开始使用">开始使用</a> ·
   <a href="#同步与备份">同步与备份</a> ·
   <a href="#开发与构建">开发与构建</a>
@@ -78,16 +84,16 @@
 
 ### 1. 安装 KeyTree
 
-取得维护者提供的 `KeyTree-Setup.exe` 后，按向导安装并启动 **KeyTree**。安装版无需 Node.js、Rust 或开发服务器；本仓库只保存源码，不包含安装包，也未发布 GitHub Release。需要自行构建时见下方“开发与构建”。
+从 [GitHub Releases 下载 `KeyTree-Setup.exe`](https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe)，按向导安装后启动 **KeyTree**。安装版无需 Node.js、Rust 或开发服务器。安装包作为 Release 附件提供，不放在源码目录中；自行构建见下方“开发与构建”。
 
 - **系统依赖：** Microsoft Edge WebView2 Runtime；缺少时安装器会尝试联网补装。
 - **安装语言：** 简体中文或 English，仅影响安装向导，不改变应用界面语言。
-- **来源核对：** 当前安装包未签名，Windows 可能提示“未知发布者”或 SmartScreen 警告。请核对来源；如发行方提供 SHA-256，再进行对照校验，校验和不等于安全审计。
+- **来源核对：** 当前安装包未签名，Windows 可能提示“未知发布者”或 SmartScreen 警告。请核对下载来源，并使用同一版本的 SHA-256 校验文件；校验和不等于安全审计。
 
 <details>
 <summary>如何校验安装包？</summary>
 
-如发行方提供 SHA-256，可在安装包所在目录执行以下命令并对照结果：
+下载同一版本的 [SHA256SUMS.txt](https://github.com/JJong177/KeyTree/releases/download/v0.1.0/SHA256SUMS.txt)，在安装包所在目录执行以下命令并对照结果：
 
 ```powershell
 Get-FileHash .\KeyTree-Setup.exe -Algorithm SHA256

@@ -9,6 +9,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe"><strong>⬇ Download for Windows x64 · v0.1.0</strong></a><br />
+  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.1.0">Release notes</a> ·
+  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/SHA256SUMS.txt">SHA-256 checksums</a>
+</p>
+
+<p align="center">
   <a href="#getting-started">Getting started</a> ·
   <a href="#sync-and-backups">Sync and backups</a> ·
   <a href="#development">Development</a>
@@ -78,16 +84,16 @@ Windows Hello local quick unlock, idle locking, timed clipboard clearing and scr
 
 ### 1. Install KeyTree
 
-Once you obtain a maintainer-provided `KeyTree-Setup.exe`, follow the wizard and launch **KeyTree**. The installed app does not require Node.js, Rust or a development server. This repository contains source code only: it does not include an installer or a published GitHub Release. To build it yourself, see Development below.
+Download [`KeyTree-Setup.exe` from GitHub Releases](https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe), follow the wizard and launch **KeyTree**. The installed app does not require Node.js, Rust or a development server. The installer is a Release attachment, not part of the source tree. To build it yourself, see Development below.
 
 - **Runtime:** Microsoft Edge WebView2 Runtime. The installer attempts an online installation if it is missing.
 - **Installer language:** Simplified Chinese or English. This changes the installation wizard only, not the application UI.
-- **File source:** the current installer is unsigned. Windows may display an unknown-publisher or SmartScreen warning. Check the source and, if the distributor provides a SHA-256, compare it. A checksum is not a security audit.
+- **File source:** the current installer is unsigned. Windows may display an unknown-publisher or SmartScreen warning. Check the download source and use the checksum file from the same release. A checksum is not a security audit.
 
 <details>
 <summary>Verify the installer checksum</summary>
 
-If the distributor provides a SHA-256, run this in the installer directory and compare the result:
+Download [SHA256SUMS.txt from the same release](https://github.com/JJong177/KeyTree/releases/download/v0.1.0/SHA256SUMS.txt), run this in the installer directory and compare the result:
 
 ```powershell
 Get-FileHash .\KeyTree-Setup.exe -Algorithm SHA256
