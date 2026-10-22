@@ -19,3 +19,30 @@ cli-out.txt
 *.kdbx.corrupt-*
 recovery-candidates.txt
 recovery-result.txt
+
+# 设计与开发过程资料仅留本地 / local-only design and planning
+/design/
+/docs/design/
+/docs/superpowers/
+
+# 内部记录、日志与本地预览 / internal records, logs and local previews
+logs/
+*.log.*
+*.dmp
+*.tmp
+/keylite/release/验收报告.md
+/assets/readme/preview.html
+
+# 一次性密码库工具仅留本地 / one-off local vault utilities
+/keylite/scripts/recover-master.mjs
+/keylite/scripts/read-external-vault.mjs
+/keylite/scripts/gen-external-vault.py
+
+# 本机凭据与密码库附属文件 / local credentials and vault sidecars
+.env
+.env.*
+!.env.example
+*.key
+*.keyx
+*.kdbx.*
+*.keytree-backups/
