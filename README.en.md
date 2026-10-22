@@ -10,8 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe"><strong>⬇ Download for Windows x64 · v0.1.0</strong></a><br />
-  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.1.0">Release notes</a> ·
-  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/SHA256SUMS.txt">SHA-256 checksums</a>
+  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.1.0">Release notes</a>
 </p>
 
 <p align="center">
@@ -88,18 +87,7 @@ Download [`KeyTree-Setup.exe` from GitHub Releases](https://github.com/JJong177/
 
 - **Runtime:** Microsoft Edge WebView2 Runtime. The installer attempts an online installation if it is missing.
 - **Installer language:** Simplified Chinese or English. This changes the installation wizard only, not the application UI.
-- **File source:** the current installer is unsigned. Windows may display an unknown-publisher or SmartScreen warning. Check the download source and use the checksum file from the same release. A checksum is not a security audit.
-
-<details>
-<summary>Verify the installer checksum</summary>
-
-Download [SHA256SUMS.txt from the same release](https://github.com/JJong177/KeyTree/releases/download/v0.1.0/SHA256SUMS.txt), run this in the installer directory and compare the result:
-
-```powershell
-Get-FileHash .\KeyTree-Setup.exe -Algorithm SHA256
-```
-
-</details>
+- **Download source:** the current installer is unsigned. Windows may display an unknown-publisher or SmartScreen warning. Download it from this project's GitHub Releases.
 
 ### 2. Create your first vault
 

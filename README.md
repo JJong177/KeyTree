@@ -10,8 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe"><strong>⬇ 下载 Windows x64 安装包 · v0.1.0</strong></a><br />
-  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.1.0">发布说明</a> ·
-  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/SHA256SUMS.txt">SHA-256 校验文件</a>
+  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.1.0">发布说明</a>
 </p>
 
 <p align="center">
@@ -88,18 +87,7 @@
 
 - **系统依赖：** Microsoft Edge WebView2 Runtime；缺少时安装器会尝试联网补装。
 - **安装语言：** 简体中文或 English，仅影响安装向导，不改变应用界面语言。
-- **来源核对：** 当前安装包未签名，Windows 可能提示“未知发布者”或 SmartScreen 警告。请核对下载来源，并使用同一版本的 SHA-256 校验文件；校验和不等于安全审计。
-
-<details>
-<summary>如何校验安装包？</summary>
-
-下载同一版本的 [SHA256SUMS.txt](https://github.com/JJong177/KeyTree/releases/download/v0.1.0/SHA256SUMS.txt)，在安装包所在目录执行以下命令并对照结果：
-
-```powershell
-Get-FileHash .\KeyTree-Setup.exe -Algorithm SHA256
-```
-
-</details>
+- **来源提醒：** 当前安装包未签名，Windows 可能提示“未知发布者”或 SmartScreen 警告。请从本项目的 GitHub Releases 下载。
 
 ### 2. 建立第一个密码库
 
