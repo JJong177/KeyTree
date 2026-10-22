@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="390" viewBox="0 0 1200 390" role="img" aria-labelledby="title desc">
+  <title id="title">KeyTree — 把密码，安放在自己手中。</title>
+  <desc id="desc">Windows 本地优先密码管理器。以一个加密 KDBX 文件组织分组与账号，可按需手动同步和备份。右侧为密码库层次示意，不是界面截图。</desc>
+  <rect width="1200" height="390" rx="24" fill="#faf6f1"/>
+  <g id="brand" font-family="Segoe UI, Microsoft YaHei, PingFang SC, sans-serif">
+    <path d="M60 58h28" stroke="#657650" stroke-width="3"/>
+    <text x="102" y="66" font-size="20" letter-spacing="2" fill="#657650">WINDOWS · 本地优先密码管理器</text>
+    <text x="56" y="183" font-family="Georgia, Times New Roman, serif" font-size="104" font-weight="700" letter-spacing="-4" fill="#292524">KeyTree</text>
+    <text x="60" y="263" font-size="44" font-weight="600" fill="#292524">把密码，安放在自己手中。</text>
+    <text x="62" y="326" font-size="25" fill="#57534e">本地管理 / 手动同步 / 加密备份</text>
+  </g>
+  <g id="vault-hierarchy" fill="none" stroke="#8b9d77" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M866 170v43m-88 0h176m-176 0v35m176-35v35"/>
+    <rect x="809" y="72" width="114" height="98" rx="13" fill="#fffdf9" stroke="#5c4033"/>
+    <path d="M856 99v-8a10 10 0 0 1 20 0v8m-24 0h28v25h-28z" stroke="#5c4033"/>
+    <rect x="730" y="249" width="96" height="58" rx="12" fill="#edf0e7"/>
+    <rect x="906" y="249" width="96" height="58" rx="12" fill="#edf0e7"/>
+    <path d="M752 271h52m-52 13h35m133-13h52m-52 13h35" stroke="#657650"/>
+    <path d="M1023 113c14-27 33-36 54-40-1 29-15 49-39 50m-15-10 28-22" fill="#dce3d2" stroke="#657650"/>
+  </g>
+  <g font-family="Segoe UI, Microsoft YaHei, sans-serif" text-anchor="middle">
+    <text x="866" y="150" font-size="20" fill="#5c4033">KDBX</text>
+    <text x="866" y="343" font-size="19" fill="#57534e">一个文件 · 有序生长</text>
+  </g>
+</svg>

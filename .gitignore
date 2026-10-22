@@ -30,13 +30,13 @@ logs/
 *.log.*
 *.dmp
 *.tmp
-/keylite/release/验收报告.md
+/keytree/release/验收报告.md
 /assets/readme/preview.html
 
 # 一次性密码库工具仅留本地 / one-off local vault utilities
-/keylite/scripts/recover-master.mjs
-/keylite/scripts/read-external-vault.mjs
-/keylite/scripts/gen-external-vault.py
+/keytree/scripts/recover-master.mjs
+/keytree/scripts/read-external-vault.mjs
+/keytree/scripts/gen-external-vault.py
 
 # 本机凭据与密码库附属文件 / local credentials and vault sidecars
 .env
@@ -46,3 +46,9 @@ logs/
 *.keyx
 *.kdbx.*
 *.keytree-backups/
+
+# 本地依赖的必要发布文件 / required vendored runtime and type declarations
+!/keytree/vendor/kdbxweb/dist/
+/keytree/vendor/kdbxweb/dist/*
+!/keytree/vendor/kdbxweb/dist/kdbxweb.js
+!/keytree/vendor/kdbxweb/dist/types/

@@ -1,0 +1,33 @@
+export declare class BinaryStream {
+    private _arrayBuffer;
+    private _dataView;
+    private _pos;
+    private readonly _canExpand;
+    constructor(arrayBuffer?: ArrayBuffer);
+    get pos(): number;
+    get byteLength(): number;
+    readBytes(size: number): ArrayBuffer;
+    readBytesToEnd(): ArrayBuffer;
+    readBytesNoAdvance(startPos: number, endPos: number): ArrayBuffer;
+    writeBytes(bytes: ArrayBuffer | Uint8Array): void;
+    getWrittenBytes(): ArrayBuffer;
+    private checkCapacity;
+    getInt8(): number;
+    setInt8(value: number): void;
+    getUint8(): number;
+    setUint8(value: number): void;
+    getInt16(littleEndian: boolean): number;
+    setInt16(value: number, littleEndian: boolean): void;
+    getUint16(littleEndian: boolean): number;
+    setUint16(value: number, littleEndian: boolean): void;
+    getInt32(littleEndian: boolean): number;
+    setInt32(value: number, littleEndian: boolean): void;
+    getUint32(littleEndian: boolean): number;
+    setUint32(value: number, littleEndian: boolean): void;
+    getFloat32(littleEndian: boolean): number;
+    setFloat32(value: number, littleEndian: boolean): void;
+    getFloat64(littleEndian: boolean): number;
+    setFloat64(value: number, littleEndian: boolean): void;
+    getUint64(littleEndian: boolean): number;
+    setUint64(value: number, littleEndian: boolean): void;
+}

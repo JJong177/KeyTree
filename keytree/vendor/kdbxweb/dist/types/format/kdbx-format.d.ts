@@ -1,0 +1,31 @@
+import { Kdbx } from './kdbx';
+import { KdbxContext } from './kdbx-context';
+export declare class KdbxFormat {
+    readonly kdbx: Kdbx;
+    readonly ctx: KdbxContext;
+    preserveXml: boolean;
+    constructor(kdbx: Kdbx);
+    load(data: ArrayBuffer): Promise<Kdbx>;
+    private loadV3;
+    private loadV4;
+    loadXml(xmlStr: string): Promise<Kdbx>;
+    save(): Promise<ArrayBuffer>;
+    private saveV3;
+    private saveV4;
+    saveXml(prettyPrint?: boolean): Promise<string>;
+    private decryptXmlV3;
+    private encryptXmlV3;
+    private getMasterKeyV3;
+    private trimStartBytesV3;
+    private setProtectedValues;
+    private getProtectSaltGenerator;
+    private getHeaderHash;
+    private getHeaderHmac;
+    private checkHeaderHashV3;
+    private computeKeysV4;
+    private decryptData;
+    private encryptData;
+    private transformDataV4Aes;
+    private transformDataV4ChaCha20;
+    private cleanXml;
+}

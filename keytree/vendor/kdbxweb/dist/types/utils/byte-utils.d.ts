@@ -1,0 +1,11 @@
+declare type ArrayBufferOrArray = ArrayBuffer | Uint8Array;
+export declare function arrayBufferEquals(ab1: ArrayBuffer, ab2: ArrayBuffer): boolean;
+export declare function bytesToString(arr: ArrayBufferOrArray): string;
+export declare function stringToBytes(str: string): Uint8Array;
+export declare function base64ToBytes(str: string): Uint8Array;
+export declare function bytesToBase64(arr: ArrayBufferOrArray): string;
+export declare function hexToBytes(hex: string): Uint8Array;
+export declare function bytesToHex(arr: ArrayBufferOrArray): string;
+export declare function arrayToBuffer(arr: ArrayBufferOrArray): ArrayBuffer;
+export declare function zeroBuffer(arr: ArrayBufferOrArray): void;
+export {};

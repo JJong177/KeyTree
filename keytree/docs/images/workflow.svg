@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">从一个密码库，开始有序的日常</title>
+  <desc id="desc">功能流程示意，非界面截图：打开或新建本地 KDBX，使用分组、搜索和密码生成管理账号，通过快速面板、复制或自动输入取用，确认保存后锁定。</desc>
+  <rect width="1200" height="360" rx="24" fill="#faf6f1"/>
+  <g font-family="Segoe UI, Microsoft YaHei, PingFang SC, sans-serif">
+    <text x="60" y="66" font-size="40" font-weight="600" fill="#292524">从一个密码库，开始有序的日常。</text>
+    <path d="M88 138h1024" stroke="#d6d3d1" stroke-width="2"/>
+    <g fill="#657650"><circle cx="88" cy="138" r="8"/><circle cx="373" cy="138" r="8"/><circle cx="658" cy="138" r="8"/><circle cx="943" cy="138" r="8"/></g>
+    <g font-size="28" font-weight="600" fill="#5c4033"><text x="60" y="197">01 / 打开</text><text x="345" y="197">02 / 整理</text><text x="630" y="197">03 / 取用</text><text x="915" y="197">04 / 锁定</text></g>
+    <g font-size="23" fill="#57534e"><text x="60" y="245">新建或打开 KDBX</text><text x="345" y="245">分组 · 搜索 · 生成</text><text x="630" y="245">快速面板 · 自动输入</text><text x="915" y="245">确认保存后锁定</text></g>
+    <text x="60" y="314" font-size="19" fill="#57534e">功能流程示意，非界面截图。同步与备份按需单独进行。</text>
+  </g>
+</svg>

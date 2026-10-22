@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">本地为根，同步与备份各司其职</title>
+  <desc id="desc">数据关系示意，非界面截图。本地 KDBX 由 KeyTree 管理，用户手动触发与 WebDAV 上同一库的双向同步。本地备份另存于库旁，不随内置同步上传；恢复只另存新文件。KeyTree 不提供手机客户端。</desc>
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto-start-reverse"><path d="M1 1l5 3-5 3" fill="none" stroke="#657650" stroke-width="1.5"/></marker></defs>
+  <rect width="1200" height="520" rx="24" fill="#faf6f1"/>
+  <g font-family="Segoe UI, Microsoft YaHei, PingFang SC, sans-serif">
+    <text x="60" y="67" font-size="40" font-weight="600" fill="#292524">本地为根，同步与备份各司其职。</text>
+    <g fill="#fffdf9" stroke="#d6d3d1" stroke-width="1.5"><rect x="60" y="124" width="440" height="146" rx="16"/><rect x="726" y="124" width="414" height="146" rx="16"/><rect x="60" y="350" width="440" height="114" rx="16"/></g>
+    <g font-size="30" font-weight="600" fill="#5c4033"><text x="90" y="175">KeyTree / 本地 KDBX</text><text x="756" y="175">WebDAV / 同一密码库</text><text x="90" y="397">本地多版本备份</text></g>
+    <g font-size="23" fill="#57534e"><text x="90" y="222">管理账号、密码与验证码</text><text x="756" y="222">读取合并后，再条件上传</text><text x="90" y="437">验证预览 → 另存新文件</text></g>
+    <path d="M516 209h194" stroke="#657650" stroke-width="2.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text x="613" y="179" font-size="24" text-anchor="middle" fill="#657650">手动同步</text>
+    <path d="M280 282v52" stroke="#657650" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <text x="304" y="316" font-size="20" fill="#57534e">覆盖前保留 / 手动备份</text>
+    <g font-size="23" fill="#57534e"><text x="566" y="381">备份目录与密钥文件不随内置同步上传。</text><text x="566" y="422">手机需另选兼容客户端，单独验证兼容性。</text></g>
+    <text x="60" y="497" font-size="19" fill="#57534e">数据关系示意 · 同步不是备份，本地备份不等于异地容灾。</text>
+  </g>
+</svg>

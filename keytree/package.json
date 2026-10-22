@@ -1,0 +1,39 @@
+{
+  "name": "keytree",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test:vault-save": "node scripts/test-vault-save.mjs",
+    "test:features": "node scripts/test-features.mjs",
+    "test:hint": "node scripts/test-master-password-hint.mjs",
+    "test:settings": "node scripts/test-settings.mjs",
+    "test": "node scripts/test-features.mjs && node scripts/test-master-password-hint.mjs && node scripts/test-vault-save.mjs && node scripts/test-settings.mjs",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-autostart": "^2.7.0",
+    "@tauri-apps/plugin-dialog": "^2.8.3",
+    "@tauri-apps/plugin-http": "^2.8.3",
+    "@tauri-apps/plugin-opener": "^2",
+    "argon2-browser": "^1.18.0",
+    "kdbxweb": "file:vendor/kdbxweb",
+    "radix-vue": "^1.9.17",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@noble/hashes": "^2.4.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "esbuild": "^0.25.12",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.3",
+    "vue-tsc": "^2.2.0"
+  }
+}

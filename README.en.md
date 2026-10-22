@@ -1,0 +1,216 @@
+<p align="right"><a href="README.md">简体中文</a> · <strong>English</strong></p>
+
+<p align="center">
+  <img src="keytree/assets/logo-transparent.png" width="140" alt="KeyTree logo: a leafy tree whose trunk forms a key" />
+</p>
+
+<p align="center">
+  <img src="assets/readme/hero.en.svg" width="100%" alt="KeyTree: Your passwords. In your hands. A local-first Windows password manager with manual sync and encrypted backups." />
+</p>
+
+<p align="center">
+  <a href="#getting-started">Getting started</a> ·
+  <a href="#sync-and-backups">Sync and backups</a> ·
+  <a href="#development">Development</a> ·
+  <a href="keytree/release/usage.en.md">Installation guide</a>
+</p>
+
+**KeyTree** is a local-first password manager for Windows. Organize accounts, passwords and one-time codes in your own encrypted `.kdbx` file. Find entries with groups and search, then use the quick panel, copy actions or auto-type for everyday sign-ins.
+
+**No cloud service is required to manage a local vault.** When you need access across devices, connect your own WebDAV service and manually sync the same encrypted file.
+
+> Current version: **0.1.0** · Installer: **Windows x64**. Screenshots use fictional data; SVGs are conceptual diagrams. The current application UI is in Chinese. English installer text and this README do not imply an English application UI or verified compatibility with every service and mobile client.
+
+## Interface preview
+
+A separately created KDBX demo vault illustrates account management, search, TOTP, entry editing and vault health checks. **All accounts, passwords, domains and one-time codes shown are fictional and must not be used to sign in.**
+
+<p align="center">
+  <img src="assets/readme/screenshots/vault-overview.webp" width="100%" alt="KeyTree vault overview in the current Chinese UI: 12 fictional entries, groups, search, masked password, TOTP, notes, tags and custom fields." />
+</p>
+
+The entry list and details sit side by side. Passwords stay masked, with groups, search and one-time codes available in the same view.
+
+<details>
+<summary>Entry editor and password generator</summary>
+
+<p align="center">
+  <img src="assets/readme/screenshots/entry-editor.webp" width="100%" alt="KeyTree entry editor showing password strength, random-password and passphrase options, URL, group, tags and notes. The password remains masked." />
+</p>
+
+Edit account details, choose random passwords or passphrases, and organize groups and tags in one place.
+
+</details>
+
+<details>
+<summary>Vault health: weak, reused and expired passwords</summary>
+
+<p align="center">
+  <img src="assets/readme/screenshots/vault-health.webp" width="100%" alt="KeyTree vault health report: one weak password, two reused passwords and one expired entry across three affected demo accounts." />
+</p>
+
+Open **Settings → Vault health (设置 → 库体检)** to filter issues and edit affected entries. These problems were intentionally added to the demo vault; the report excludes the recycle bin.
+
+Password strength is a local estimate, not a breach check. Change a password on its website first, then update the vault. Editing a local entry does not change the website password.
+
+</details>
+
+> **Screenshot scope:** captured from the current application frontend after actually decrypting a demo KDBX in an isolated environment. Native interfaces were adapted for isolation; no real accounts or cloud services were connected. These captures are not a complete native desktop acceptance test.
+
+## From organization to everyday access
+
+<p align="center">
+  <img src="keytree/docs/images/workflow.en.svg" width="100%" alt="Everyday workflow: open a KDBX vault, organize accounts, retrieve entries, then confirm saving and lock the vault." />
+</p>
+
+### Keep accounts organized
+
+Groups, tags, search and custom fields keep work and personal accounts in order. Entry history and the recycle bin help you revisit changes and recover deleted entries; recent vaults make switching convenient.
+
+### Retrieve what you need
+
+Generate random passwords or passphrases and store TOTP one-time codes. The quick panel, global shortcuts, copy actions and auto-type reduce repetitive input. Always check the target window and input focus before auto-type.
+
+### Everyday safeguards
+
+Windows Hello local quick unlock, idle locking, timed clipboard clearing and screenshot hiding are available. Other integrations include the system tray, optional launch at login, vault health checks and a local activity timeline.
+
+## Getting started
+
+### 1. Install KeyTree
+
+Run the project-provided `KeyTree-Setup.exe`, follow the wizard and launch **KeyTree**. The installed app does not require Node.js, Rust or a development server.
+
+- **Runtime:** Microsoft Edge WebView2 Runtime. The installer attempts an online installation if it is missing.
+- **Installer language:** Simplified Chinese or English. This changes the installation wizard only, not the application UI.
+- **File source:** the current installer is unsigned. Windows may display an unknown-publisher or SmartScreen warning. Check the source and supplied SHA-256; a checksum is not a security audit.
+
+<details>
+<summary>Verify the installer checksum</summary>
+
+Run this in the installer directory and compare the result with the supplied `SHA256SUMS.txt`:
+
+```powershell
+Get-FileHash .\KeyTree-Setup.exe -Algorithm SHA256
+```
+
+</details>
+
+See the concise [installation guide](keytree/release/usage.en.md).
+
+### 2. Create your first vault
+
+Choose **New (新建)** to set a master password and save a `.kdbx` file, or **Open (打开)** to use an existing vault. An optional key file can also be used.
+
+Add a test entry, try groups, search and copy, and confirm that saving succeeded. **Practice with a test vault and verify backup recovery before migrating important accounts.** If saving fails, retry or save a new copy rather than assuming the changes reached disk.
+
+> Keep your master password and key file safe and independently backed up. Required credentials cannot be bypassed if lost. Windows Hello is not a cross-device replacement for your master password.
+
+### 3. Import existing accounts
+
+Go to **Settings → Data (设置 → 数据)** and select a Chrome, Edge or KeePassXC CSV export. Review the preview before confirming. Imports currently add new entries without overwriting existing ones.
+
+Prefer a complete encrypted KDBX copy for exports. **CSV exports contain plaintext passwords** and are intended only for temporary migration, not sharing, uploading or routine backup storage.
+
+## Sync and backups
+
+<p align="center">
+  <img src="keytree/docs/images/data-flow.en.svg" width="100%" alt="KeyTree manages a local KDBX and manually syncs the same vault with WebDAV. Local versioned backups are separate and restore to a new file." />
+</p>
+
+### Sync before and after switching devices
+
+In **Settings → Sync (设置 → 同步)**, enter the full HTTPS `.kdbx` file URL, username and application-specific password. Save, run the read-only connection test, then click **Sync now (立即同步)**. A shortcut is also available in the main view.
+
+Sync reads and verifies the same remote vault, merges it, saves locally and then performs a conditional upload. It stops if the remote version changes instead of overwriting unconditionally. **A local save does not mean the remote copy is up to date. There is no background automatic sync.**
+
+For Jianguoyun, first upload the same current KDBX manually, then configure its WebDAV file URL—not a web sharing link. Do not let a cloud-drive client and built-in sync manage the same local file simultaneously.
+
+Mobile devices require a separate client supporting KDBX and the relevant service; KeyTree has no mobile app. Sync before editing on another device and again afterward. Real-service and cross-device compatibility still require verification.
+
+[WebDAV quick guide →](keytree/docs/webdav-sync.en.md)
+
+### Keep previous versions; restore without overwriting
+
+Open **Settings → Data → Versioned encrypted backups (设置 → 数据 → 多版本加密备份)**. KeyTree preserves the previous ciphertext before overwriting an existing valid KDBX; you can also back up the currently saved version manually.
+
+Backups live next to the vault in `<vault filename>.keytree-backups`. Each vault retains at most **30 copies / 256 MiB total**, with a **64 MiB** limit per copy. To recover, verify a preview with the current credentials, then export to a new, nonexistent filename without replacing the original.
+
+Built-in sync uploads the vault only—not the backup directory, key files, Hello cache, application settings or audit records. Transfer key files separately using a safe channel.
+
+**Sync is not backup, and local backups are not off-device disaster recovery.** Older backups may require the old master password or key file. Keep another protected copy on an independent device.
+
+[Backup and recovery quick guide →](keytree/docs/sync-and-backups.en.md)
+
+## Security boundaries
+
+KDBX encryption, Windows Hello and DPAPI-protected local credentials are safeguards, not absolute security guarantees. They cannot protect a system already controlled by malware.
+
+- **Public master-password hints are plaintext metadata** and travel with the KDBX. Do not include passwords, keys or sensitive clues.
+- Changing a master password or key file does not re-encrypt old backups, cloud history or other copies. Old credentials may still open them.
+- Idle locking, clipboard clearing and screenshot hiding are auxiliary protections, not guarantees against all capture or disclosure.
+- No third-party security audit is provided. Conditional uploads to real services, mobile merging and metadata preservation require separate verification.
+
+## Development
+
+Frontend: **Vue 3 / TypeScript / Vite / Tailwind CSS / Radix Vue**. Desktop layer: **Tauri 2 / Rust**. KDBX operations use the vendored `kdbxweb` with Argon2 support.
+
+On Windows, prepare Node.js 22 LTS, npm, Rust stable with MSVC, Visual Studio C++ desktop build tools, the Windows SDK and WebView2. Node.js 22 is a recommended environment, not a claimed minimum. See the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+
+From the repository root:
+
+```powershell
+cd keytree
+npm ci
+npm run tauri -- dev
+```
+
+Application sources are in `keytree`. `npm run dev` previews the frontend only; a regular browser cannot replace native desktop validation.
+
+<details>
+<summary>Tests, packaging and repository layout</summary>
+
+Run these from `keytree`:
+
+```powershell
+# Frontend regression scripts
+npm test
+
+# Type checking and frontend build
+npm run build
+
+# Rust tests
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# Desktop release build
+npm run tauri -- build
+```
+
+Default bundle output: `keytree/src-tauri/target/release/bundle/`. These commands document the workflow; they do not claim that every documentation update reruns all tests or installer checks.
+
+```text
+.
+├── README.md                 # Chinese project homepage
+├── README.en.md              # English project homepage
+├── assets/readme/            # README visuals and screenshots
+└── keytree/
+    ├── assets/               # Product logo
+    ├── src/
+    │   ├── components/       # Vault, entry and settings UI
+    │   ├── composables/      # Vault state, locking and sync coordination
+    │   ├── lib/              # Search, TOTP, import and utilities
+    │   └── kdbx/             # KDBX and Argon2 integration
+    ├── src-tauri/            # Rust native layer and packaging
+    ├── vendor/kdbxweb/       # Vendored KDBX dependency
+    ├── scripts/              # Development and regression scripts
+    ├── docs/                 # Sync and backup quick guides
+    └── release/              # Installation notes
+```
+
+</details>
+
+## Feedback and licensing
+
+Include the app version, Windows version, reproduction steps and sanitized errors when reporting issues. **Never upload a real vault, master password, key file, WebDAV application password or screenshot containing sensitive fields.**
+
+The project currently has no root-level license file. Source visibility alone does not grant unrestricted use, modification or redistribution; the maintainer must clarify those permissions.

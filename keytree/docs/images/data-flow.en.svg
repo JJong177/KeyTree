@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">Local at the core. Sync and backup are separate.</title>
+  <desc id="desc">Conceptual data flow, not a screenshot. KeyTree manages a local KDBX and manually syncs the same remote vault over WebDAV. Local backups are separate, and recovery exports a new file. Key files are transferred independently. KeyTree has no mobile app.</desc>
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto-start-reverse"><path d="M1 1l5 3-5 3" fill="none" stroke="#657650" stroke-width="1.5"/></marker></defs>
+  <rect width="1200" height="520" rx="24" fill="#faf6f1"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="60" y="67" font-size="40" font-weight="600" fill="#292524">Local at the core. Sync and backup are separate.</text>
+    <g fill="#fffdf9" stroke="#d6d3d1" stroke-width="1.5"><rect x="60" y="124" width="440" height="146" rx="16"/><rect x="726" y="124" width="414" height="146" rx="16"/><rect x="60" y="350" width="440" height="114" rx="16"/></g>
+    <g font-size="30" font-weight="600" fill="#5c4033"><text x="90" y="175">KeyTree / Local KDBX</text><text x="756" y="175">WebDAV / Same vault</text><text x="90" y="397">Local versioned backups</text></g>
+    <g font-size="23" fill="#57534e"><text x="90" y="222">Accounts, passwords and codes</text><text x="756" y="222">Merge, then conditionally upload</text><text x="90" y="437">Verify preview → Export new file</text></g>
+    <path d="M516 209h194" stroke="#657650" stroke-width="2.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text x="613" y="179" font-size="24" text-anchor="middle" fill="#657650">Manual sync</text>
+    <path d="M280 282v52" stroke="#657650" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <text x="304" y="316" font-size="20" fill="#57534e">Before overwrite / On demand</text>
+    <g font-size="23" fill="#57534e"><text x="566" y="378">Backups and key files are not uploaded.</text><text x="566" y="411">Mobile requires a separate compatible app.</text><text x="566" y="444">Verify compatibility with your service.</text></g>
+    <text x="60" y="497" font-size="19" fill="#57534e">Data-flow diagram · Sync is not backup. Local backups are not off-device disaster recovery.</text>
+  </g>
+</svg>

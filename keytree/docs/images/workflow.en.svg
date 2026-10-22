@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">One vault. An organized everyday routine.</title>
+  <desc id="desc">Conceptual workflow, not a screenshot: open a KDBX, organize and search entries, retrieve them through the quick panel or auto-type, then confirm saving and lock.</desc>
+  <rect width="1200" height="360" rx="24" fill="#faf6f1"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="60" y="66" font-size="40" font-weight="600" fill="#292524">One vault. An organized everyday routine.</text>
+    <path d="M88 138h1024" stroke="#d6d3d1" stroke-width="2"/>
+    <g fill="#657650"><circle cx="88" cy="138" r="8"/><circle cx="373" cy="138" r="8"/><circle cx="658" cy="138" r="8"/><circle cx="943" cy="138" r="8"/></g>
+    <g font-size="28" font-weight="600" fill="#5c4033"><text x="60" y="197">01 / Open</text><text x="345" y="197">02 / Organize</text><text x="630" y="197">03 / Retrieve</text><text x="915" y="197">04 / Lock</text></g>
+    <g font-size="23" fill="#57534e"><text x="60" y="245">Create or open a KDBX</text><text x="345" y="245">Group / Search / Generate</text><text x="630" y="245">Quick panel / Auto-type</text><text x="915" y="245">Confirm saving, then lock</text></g>
+    <text x="60" y="314" font-size="19" fill="#57534e">Workflow diagram, not a screenshot. Sync and backups are separate actions.</text>
+  </g>
+</svg>
