@@ -204,3 +204,7 @@ Default bundle output: `keytree/src-tauri/target/release/bundle/`. These command
 Include the app version, Windows version, reproduction steps and sanitized errors when reporting issues. **Never upload a real vault, master password, key file, WebDAV application password or screenshot containing sensitive fields.**
 
 The project currently has no root-level license file. Source visibility alone does not grant unrestricted use, modification or redistribution; the maintainer must clarify those permissions.
+
+<p align="center">
+  <a href="https://linux.do/"><img src="assets/readme/linux-do.svg" width="750" alt="LINUX DO — Where possible begins. Visit the open-source technology community at linux.do." /></a>
+</p>
