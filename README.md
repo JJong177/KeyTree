@@ -1,4 +1,7 @@
-<p align="right"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
+<p align="right">
+  <a href="README.md"><img src="https://img.shields.io/badge/语言-简体中文-657650?style=flat-square" alt="简体中文（当前）" height="24" /></a>
+  <a href="README.en.md"><img src="https://img.shields.io/badge/Language-English-555555?style=flat-square" alt="Switch to English" height="24" /></a>
+</p>
 
 <p align="center">
   <img src="keytree/assets/logo-transparent.png" width="140" alt="KeyTree Logo：绿叶与金叶组成树冠，深棕色树干延伸为钥匙" />
@@ -9,14 +12,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe"><strong>⬇ 下载 Windows x64 安装包 · v0.1.0</strong></a><br />
-  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.1.0">发布说明</a>
+  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe"><img src="https://img.shields.io/badge/下载-Windows_x64_v0.1.0-657650?style=flat-square" alt="下载 Windows x64 安装包 v0.1.0" height="28" /></a>
+  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.1.0"><img src="https://img.shields.io/badge/版本-发布说明-5c4033?style=flat-square" alt="查看发布说明" height="28" /></a>
+  <a href="https://linux.do/"><img src="https://img.shields.io/badge/LINUX_DO-社区-ffb000?style=flat-square&amp;logo=discourse&amp;logoColor=white&amp;labelColor=555555" alt="LINUX DO 社区" height="28" /></a>
 </p>
 
 <p align="center">
-  <a href="#开始使用">开始使用</a> ·
-  <a href="#同步与备份">同步与备份</a> ·
-  <a href="#开发与构建">开发与构建</a>
+  <a href="#开始使用"><img src="https://img.shields.io/badge/指南-开始使用-657650?style=flat-square" alt="开始使用" height="26" /></a>
+  <a href="#同步与备份"><img src="https://img.shields.io/badge/数据-同步与备份-657650?style=flat-square" alt="同步与备份" height="26" /></a>
+  <a href="#开发与构建"><img src="https://img.shields.io/badge/源码-开发与构建-5c4033?style=flat-square" alt="开发与构建" height="26" /></a>
 </p>
 
 **KeyTree** 是一款面向 Windows 的本地优先密码管理器。把账号、密码和动态验证码整理在自己的 `.kdbx` 加密文件中，通过分组与搜索找到它们，用快速面板、复制或自动输入完成日常登录。
@@ -206,7 +210,3 @@ npm run tauri -- build
 ## 许可
 
 MIT，见 [LICENSE](LICENSE)。
-
-<p align="center">
-  <a href="https://linux.do/"><img src="assets/readme/linux-do.svg" width="750" alt="LINUX DO：新的理想型社区 — Where possible begins. 点击访问 linux.do。" /></a>
-</p>

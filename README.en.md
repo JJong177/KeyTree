@@ -1,4 +1,7 @@
-<p align="right"><a href="README.md">简体中文</a> · <strong>English</strong></p>
+<p align="right">
+  <a href="README.md"><img src="https://img.shields.io/badge/语言-简体中文-555555?style=flat-square" alt="切换到简体中文" height="24" /></a>
+  <a href="README.en.md"><img src="https://img.shields.io/badge/Language-English-657650?style=flat-square" alt="English (current)" height="24" /></a>
+</p>
 
 <p align="center">
   <img src="keytree/assets/logo-transparent.png" width="140" alt="KeyTree logo: a leafy tree whose trunk forms a key" />
@@ -9,14 +12,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe"><strong>⬇ Download for Windows x64 · v0.1.0</strong></a><br />
-  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.1.0">Release notes</a>
+  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe"><img src="https://img.shields.io/badge/Download-Windows_x64_v0.1.0-657650?style=flat-square" alt="Download Windows x64 installer v0.1.0" height="28" /></a>
+  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.1.0"><img src="https://img.shields.io/badge/Release-Notes-5c4033?style=flat-square" alt="Read release notes" height="28" /></a>
+  <a href="https://linux.do/"><img src="https://img.shields.io/badge/LINUX_DO-Community-ffb000?style=flat-square&amp;logo=discourse&amp;logoColor=white&amp;labelColor=555555" alt="LINUX DO community" height="28" /></a>
 </p>
 
 <p align="center">
-  <a href="#getting-started">Getting started</a> ·
-  <a href="#sync-and-backups">Sync and backups</a> ·
-  <a href="#development">Development</a>
+  <a href="#getting-started"><img src="https://img.shields.io/badge/Guide-Getting_started-657650?style=flat-square" alt="Getting started" height="26" /></a>
+  <a href="#sync-and-backups"><img src="https://img.shields.io/badge/Data-Sync_and_backups-657650?style=flat-square" alt="Sync and backups" height="26" /></a>
+  <a href="#development"><img src="https://img.shields.io/badge/Source-Development-5c4033?style=flat-square" alt="Development" height="26" /></a>
 </p>
 
 **KeyTree** is a local-first password manager for Windows. Organize accounts, passwords and one-time codes in your own encrypted `.kdbx` file. Find entries with groups and search, then use the quick panel, copy actions or auto-type for everyday sign-ins.
@@ -206,7 +210,3 @@ Include the app version, Windows version, reproduction steps and sanitized error
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-<p align="center">
-  <a href="https://linux.do/"><img src="assets/readme/linux-do.svg" width="750" alt="LINUX DO — Where possible begins. Visit the open-source technology community at linux.do." /></a>
-</p>
