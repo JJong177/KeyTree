@@ -203,9 +203,9 @@ Default bundle output: `keytree/src-tauri/target/release/bundle/`. These command
 
 </details>
 
-## Feedback
+## Maintenance status
 
-Include the app version, Windows version, reproduction steps and sanitized errors when reporting issues. **Never upload a real vault, master password, key file, WebDAV application password or screenshot containing sensitive fields.**
+This project was built primarily for personal use and currently meets my needs. There are no plans for ongoing maintenance. I may consider maintaining it further if there is sufficient interest and positive feedback, but updates and responses to issues are not guaranteed.
 
 ## License
 
