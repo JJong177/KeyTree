@@ -199,11 +199,13 @@ npm run tauri -- build
 
 </details>
 
-## 反馈与授权
+## 反馈
 
 反馈问题时，请提供应用版本、Windows 版本、复现步骤和脱敏错误信息。**不要提交真实密码库、主密码、密钥文件、WebDAV 授权密码或含敏感字段的截图。**
 
-仓库当前未见项目根级许可证文件。源码可见不等于已获任意使用、修改或再分发授权，相关授权需由维护者明确。
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。
 
 <p align="center">
   <a href="https://linux.do/"><img src="assets/readme/linux-do.svg" width="750" alt="LINUX DO：新的理想型社区 — Where possible begins. 点击访问 linux.do。" /></a>
