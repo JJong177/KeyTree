@@ -203,10 +203,6 @@ Default bundle output: `keytree/src-tauri/target/release/bundle/`. These command
 
 </details>
 
-## Maintenance status
-
-This project was built primarily for personal use and currently meets my needs. There are no plans for ongoing maintenance. I may consider maintaining it further if there is sufficient interest and positive feedback, but updates and responses to issues are not guaranteed.
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
