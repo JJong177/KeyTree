@@ -103,6 +103,7 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
       stat: { mtimeMs: 1, size: 64, mtimeNs: "1" }, loadGate: null, vaultBytes: null, headerBytes: [], headerGate: null, headerError: null, headerCalls: [],
       listeners: new Map(), messages: [], saveGate: null, writeGate: null, csv: "",
       audit: { enabled: false, epoch: 1, events: [] }, auditGate: null, diagnosticsFailure: false, diagnosticsGate: null, failCopy: false, copies: 0, copyArgs: [], clipboardReads: 0, nativeCalls: [], helloError: null, backupBytes: [], backupFailure: false, loads: 0,
+      clipboardCandidate: null, clipboardGate: null,
       syncBytes: null, prepareError: null, commitError: null, prepareGate: null, commitGate: null, commits: [],
       webdavConfig: { configured: false, url: "", username: "", hasPassword: false, lastSyncedAt: null },
       snapshotItems: [], snapshotBytes: [], snapshotReadGate: null, snapshotReadError: null, snapshotCreateError: null, snapshotExportError: null, snapshotCreates: [], snapshotExports: [], dialogSaves: [], dialogSaveTarget: null,
@@ -169,6 +170,7 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
         if (name === "audit_append") { if (state.audit.enabled && state.audit.epoch === args.epoch) { state.audit.events.push(args); return true; } return false; }
         if (name === "audit_read") return { ...state.audit };
         if (name === "copy_secret") { if (state.failCopy) throw new Error("SYNTHETIC_COPY_DENIED"); state.copies++; state.copyArgs.push(args); return { privacyProtected: true, clearScheduled: args.clearAfterMs > 0 }; }
+        if (name === "read_clipboard_candidate") { state.clipboardReads++; if (state.clipboardGate) await state.clipboardGate; return state.clipboardCandidate; }
         if (name === "backup_info") { if (state.backupFailure) throw new Error("SYNTHETIC_BACKUP_IO"); return { exists: !!state.backupBytes.length, mtimeMs: 1, size: state.backupBytes.length }; }
         if (name === "read_vault") return args.path.endsWith(".bak") ? state.backupBytes : state.vaultBytes ?? Array.from(new TextEncoder().encode(state.csv));
         if (name === "write_vault") {
@@ -503,6 +505,9 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
     assert.equal(f.settings.lastVaultPath, "OTHER_SYNTHETIC.kdbx");
   });
   await scenario("manual lock awaits an in-flight write instead of clearing the vault early", async f => {
+    document.hasFocus = () => true; document.hidden = false;
+    f.settings.clipboardRecognition = true;
+    const main = f.mount(f.MainView);
     const blocked = gate();
     f.state.writeGate = blocked.promise;
     const saving = f.vault.addEntry(f.draft);
@@ -512,10 +517,14 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
     await Promise.resolve(); await Promise.resolve();
     assert.equal(settled, false);
     assert.equal(f.vault.unlocked.value, true);
+    assert.equal(f.vault.clipboardCaptureBlocked.value, true);
+    main.onClipboardFocus(); await f.nextTick();
+    assert.equal(f.state.clipboardReads, 0);
     blocked.release();
     await saving;
     assert.equal(await locking, true);
     assert.equal(f.vault.unlocked.value, false);
+    assert.equal(f.vault.clipboardCaptureBlocked.value, false);
   });
   await scenario("changes during serialization remain dirty until a later flush saves them", async f => {
     const id = await f.vault.addEntry(f.draft);
@@ -1012,6 +1021,68 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
     f.state.failWrite = false;
     assert.equal(await f.vault.retryHistorySave(), true);
     assert.equal(f.vault.historyOf(id).length, count);
+  });
+  await scenario("clipboard opt-in, confirmation and editor prefill never save until manual submit", async f => {
+    document.hasFocus = () => true;
+    document.hidden = false;
+    f.state.clipboardCandidate = { sequence: 11, text: "名称:Clipboard test\n账号:demo\n密码: SYNTHETIC:a,b ", html: null, sourceUrl: "https://sheet.example.test/doc", sourceApp: "excel.exe" };
+    const main = f.mount(f.MainView);
+    main.onClipboardFocus(); await f.nextTick();
+    assert.equal(f.state.clipboardReads, 0);
+    f.settings.clipboardRecognition = true;
+    main.onClipboardFocus(); await until(() => !!main.clipboardRecognition);
+    assert.equal(f.vault.entries.value.length, 0);
+    assert.equal(f.state.writes.length, 0);
+    assert.equal(main.clipboardRecognition.source.url, "https://sheet.example.test");
+    main.acceptClipboardRecord(0);
+    assert.equal(main.clipboardRecognition, null);
+    assert.equal(f.vault.drawer.value.mode, "create");
+    const drawer = f.mount(f.EntryDrawer, { clipboardDraft: main.clipboardDraft });
+    assert.equal(drawer.form.username, "demo");
+    assert.equal(drawer.form.password, " SYNTHETIC:a,b ");
+    assert.equal(drawer.form.url, "");
+    assert.equal(drawer.revealed, false);
+    assert.equal(f.vault.entries.value.length, 0);
+    assert.equal(f.state.writes.length, 0);
+    drawer.requestClose(); assert.equal(drawer.confirmDiscard, true);
+    drawer.confirmDiscard = false;
+    await drawer.submit();
+    assert.equal(f.vault.entries.value.length, 1);
+    assert.equal(f.vault.drawer.value.open, false);
+    assert.equal(main.clipboardDraft, null);
+    assert.equal(f.vault.draftOf(f.vault.entries.value[0].uuid).password, " SYNTHETIC:a,b ");
+    f.vault.openCreateDrawer();
+    const empty = f.mount(f.EntryDrawer);
+    assert.equal(empty.form.password, "");
+  });
+  await scenario("clipboard ignores dismissal, overlays, active edits and late results after lock begins", async f => {
+    document.hasFocus = () => true; document.hidden = false;
+    f.settings.clipboardRecognition = true;
+    f.state.clipboardCandidate = { sequence: 12, text: "账号:demo\n密码:SYNTHETIC", html: null, sourceUrl: null, sourceApp: null };
+    const main = f.mount(f.MainView);
+    main.settingsOpen = true; main.onClipboardFocus();
+    assert.equal(f.state.clipboardReads, 0);
+    main.settingsOpen = false;
+    main.onClipboardFocus(); await until(() => !!main.clipboardRecognition);
+    main.clearClipboardRecognition();
+    main.onClipboardFocus(); await f.nextTick();
+    assert.equal(main.clipboardRecognition, null);
+    assert.equal(f.vault.entries.value.length, 0);
+    f.vault.openCreateDrawer(); const drawer = f.mount(f.EntryDrawer);
+    drawer.form.title = "Keep my edit";
+    const reads = f.state.clipboardReads;
+    main.onClipboardFocus(); await f.nextTick();
+    assert.equal(f.state.clipboardReads, reads);
+    assert.equal(drawer.form.title, "Keep my edit");
+    f.vault.closeDrawer();
+    const pending = gate(); f.state.clipboardGate = pending.promise;
+    f.state.clipboardCandidate.sequence = 13;
+    main.onClipboardFocus();
+    const locking = f.vault.lock({ force: true });
+    pending.release(); await locking; await f.nextTick();
+    assert.equal(main.clipboardRecognition, null);
+    assert.equal(main.clipboardDraft, null);
+    assert.equal(f.vault.unlocked.value, false);
   });
   await scenario("editor guards discard, blocks double submit/close while saving, security lock bypasses", async f => {
     f.vault.openCreateDrawer();

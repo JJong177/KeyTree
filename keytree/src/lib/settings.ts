@@ -5,6 +5,8 @@ export interface AppSettings {
   autoLockMinutes: number;
   /** 复制密码后多少秒清空剪贴板；0 = 不清空 */
   clipboardSeconds: number;
+  /** 仅返回已解锁主窗口时识别当前剪贴板，默认不读取 */
+  clipboardRecognition: boolean;
   /** 解锁成功后缓存 DPAPI 密钥副本，之后可用 Windows Hello 快速解锁 */
   quickUnlock: boolean;
   /** 禁止将解锁凭据持久缓存；不改变 KDBX 密钥或加密参数 */
@@ -62,6 +64,7 @@ function readStored(): string | null {
 const defaults: AppSettings = {
   autoLockMinutes: 10,
   clipboardSeconds: 30,
+  clipboardRecognition: false,
   quickUnlock: false,
   highSecurityMode: false,
   screenshotProtection: true,
@@ -98,6 +101,7 @@ function load(): AppSettings {
         300,
         defaults.clipboardSeconds
       ),
+      clipboardRecognition: parsed.clipboardRecognition === true,
       // Only an explicit opt-in enables local credential caching.
       quickUnlock: parsed.highSecurityMode !== true && parsed.quickUnlock === true,
       highSecurityMode: parsed.highSecurityMode === true,

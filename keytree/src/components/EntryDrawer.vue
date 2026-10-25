@@ -8,6 +8,8 @@ import { settings } from "../lib/settings";
 import { parseTotpInput } from "../lib/totp";
 import { validateCustomFields, validateSequence } from "../lib/entry-fields";
 
+const props = defineProps<{ clipboardDraft?: Pick<EntryDraft, "title" | "username" | "password" | "url" | "notes"> | null }>();
+
 const {
   drawer,
   groups,
@@ -172,6 +174,11 @@ function removeField(index: number) {
 onMounted(() => {
   init();
   initialDraft.value = JSON.stringify(form);
+  // Treat imported fields as unsaved edits: closing must keep the existing discard confirmation.
+  if (!isEdit.value && props.clipboardDraft) {
+    const { title, username, password, url, notes } = props.clipboardDraft;
+    Object.assign(form, { title, username, password, url, notes });
+  }
 });
 
 </script>

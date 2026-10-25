@@ -61,6 +61,7 @@ try {
     const { settings } = await fixture({});
     assert.equal(settings.autoLockMinutes, 10);
     assert.equal(settings.clipboardSeconds, 30);
+    assert.equal(settings.clipboardRecognition, false, "clipboard reads require opt-in");
     assert.deepEqual([...settings.vaults], []);
     assert.equal(settings.quickUnlock, false, "new installs must opt in to cached credentials");
     assert.equal(settings.highSecurityMode, false);
@@ -78,6 +79,17 @@ try {
     assert.equal(secure.settings.highSecurityMode, true);
     assert.equal(secure.settings.quickUnlock, false);
     assert.equal(secure.settings.autoHelloUnlock, false);
+  });
+  await test("clipboard recognition only enables with an explicit boolean opt-in", async () => {
+    for (const value of [undefined, false, "true", 1]) {
+      const { settings } = await fixture({ [currentKey]: JSON.stringify({ clipboardRecognition: value }) });
+      assert.equal(settings.clipboardRecognition, false);
+    }
+    const { settings, nextTick, data } = await fixture({ [currentKey]: JSON.stringify({ clipboardRecognition: true }) });
+    assert.equal(settings.clipboardRecognition, true);
+    settings.clipboardRecognition = false;
+    await nextTick();
+    assert.equal(JSON.parse(data.get(currentKey)).clipboardRecognition, false);
   });
 } finally {
   if (originalStorage === undefined) delete globalThis.localStorage;

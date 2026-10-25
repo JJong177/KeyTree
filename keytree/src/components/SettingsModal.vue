@@ -567,6 +567,16 @@ const clipboardOptions = [
               需先启用快速解锁；手动锁定后不会自动弹出。
             </p>
           </div>
+          <div class="border-b border-stone-200 pb-5">
+            <label class="mb-1 flex items-center gap-2 text-sm font-medium text-stone-700">
+              <input v-model="settings.clipboardRecognition" type="checkbox" class="h-4 w-4" :disabled="working || busy || webdavWorking || backupWorking" />
+              回到软件时识别剪贴板账号
+            </label>
+            <p class="mt-1 text-xs leading-5 text-stone-500">
+              仅在回到已解锁的主窗口时读取最后一次复制的文本、表格和可用来源，不后台监听、不上传、不记录原文。
+              识别后先询问，确认后仅填入新增页，仍需你核对并手动保存。正在编辑或打开设置时不读取。
+            </p>
+          </div>
           <div>
             <label class="mb-1 block text-sm font-medium text-stone-700">空闲自动锁定</label>
             <select

@@ -130,6 +130,10 @@ const drawer = ref<{ open: boolean; mode: "create" | "edit"; uuid: string }>({
 });
 /** 新建抽屉默认落在哪个分组 */
 const pendingGroup = ref("");
+/** Invalidates in-flight clipboard previews before asynchronous lock/save work starts. */
+const clipboardCaptureEpoch = ref(0);
+const clipboardLockRequests = ref(0);
+const clipboardCaptureBlocked = computed(() => clipboardLockRequests.value > 0);
 /** 回收站分组（KeePass 的 Meta.RecycleBinUuid 指向它） */
 const trash = ref<{ uuid: string; count: number } | null>(null);
 
@@ -2008,52 +2012,56 @@ function closeDrawer(): void {
  * 返回值只表示是否已经锁定，不表示强制锁定前保存一定成功。
  */
 async function lock(options: { force?: boolean } = {}): Promise<boolean> {
-  unlockGeneration++;
-  encryptionGeneration++;
-  invalidateWebdavSync();
-  invalidateSnapshots();
-  // Before any asynchronous save, cancel injection and conditionally clear only our clipboard.
-  void invoke("cancel_auto_type").catch(() => {});
-  void invoke("clear_secret_clipboard").catch(() => { toast("锁定时剪贴板清理失败，请手动清理", 6000); });
-  const current = db.value;
-  const flushed = await flushSave();
-  // 并行锁定已完成时，直接回报实际状态，不覆盖另一调用的失败警告。
-  if (db.value !== current) return !unlocked.value;
-  if (!flushed && !options.force) {
-    if (!error.value) error.value = "仍有未保存的修改，已取消锁定，请重试保存或另存 KDBX 副本";
-    status.value = "锁定已取消：修改尚未全部写入磁盘";
-    return false;
-  }
-  const lastSaveError = error.value;
-  // 只有真正执行锁定才停 watcher，取消锁定时保留外部变更监听。
-  void invoke("watch_vault", { path: null }).catch(() => {});
-  cancelScheduledSave();
-  resetSaveState();
-  cancelImport();
-  favoritesOnly.value = false;
-  knownStat.value = null;
-  knownPublicData = "";
-  db.value = null;
-  vaultPath.value = "";
-  keyFileBytes.value = null;
-  groups.value = [];
-  entries.value = [];
-  entryRefs.clear();
-  groupRefs.clear();
-  trash.value = null;
-  iconUrls.clear();
-  hostIcons.clear();
-  query.value = "";
-  selectedGroupUuid.value = "all";
-  selectedUuid.value = "";
-  drawer.value.open = false;
-  historyPending.value = false;
-  error.value = "";
-  status.value = "";
-  if (!flushed) {
-    error.value = `为保护密码库已强制锁定，但最近的修改未能保存${lastSaveError ? `：${lastSaveError}` : ""}`;
-  }
-  return true;
+  clipboardLockRequests.value++;
+  try {
+    clipboardCaptureEpoch.value++;
+    unlockGeneration++;
+    encryptionGeneration++;
+    invalidateWebdavSync();
+    invalidateSnapshots();
+    // Before any asynchronous save, cancel injection and conditionally clear only our clipboard.
+    void invoke("cancel_auto_type").catch(() => {});
+    void invoke("clear_secret_clipboard").catch(() => { toast("锁定时剪贴板清理失败，请手动清理", 6000); });
+    const current = db.value;
+    const flushed = await flushSave();
+    // 并行锁定已完成时，直接回报实际状态，不覆盖另一调用的失败警告。
+    if (db.value !== current) return !unlocked.value;
+    if (!flushed && !options.force) {
+      if (!error.value) error.value = "仍有未保存的修改，已取消锁定，请重试保存或另存 KDBX 副本";
+      status.value = "锁定已取消：修改尚未全部写入磁盘";
+      return false;
+    }
+    const lastSaveError = error.value;
+    // 只有真正执行锁定才停 watcher，取消锁定时保留外部变更监听。
+    void invoke("watch_vault", { path: null }).catch(() => {});
+    cancelScheduledSave();
+    resetSaveState();
+    cancelImport();
+    favoritesOnly.value = false;
+    knownStat.value = null;
+    knownPublicData = "";
+    db.value = null;
+    vaultPath.value = "";
+    keyFileBytes.value = null;
+    groups.value = [];
+    entries.value = [];
+    entryRefs.clear();
+    groupRefs.clear();
+    trash.value = null;
+    iconUrls.clear();
+    hostIcons.clear();
+    query.value = "";
+    selectedGroupUuid.value = "all";
+    selectedUuid.value = "";
+    drawer.value.open = false;
+    historyPending.value = false;
+    error.value = "";
+    status.value = "";
+    if (!flushed) {
+      error.value = `为保护密码库已强制锁定，但最近的修改未能保存${lastSaveError ? `：${lastSaveError}` : ""}`;
+    }
+    return true;
+  } finally { clipboardLockRequests.value--; }
 }
 
 /** 查询同目录滚动备份（解锁失败时决定要不要给「从备份恢复」入口） */
@@ -2229,6 +2237,8 @@ export function useVault() {
     selectEntry,
     selectGroup,
     openCreateDrawer,
+    clipboardCaptureEpoch,
+    clipboardCaptureBlocked,
     openEditDrawer,
     closeDrawer,
     lock,

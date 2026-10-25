@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { useVault } from "../composables/useVault";
 import { settings, type VaultMeta } from "../lib/settings";
@@ -11,6 +11,8 @@ import EntryDrawer from "./EntryDrawer.vue";
 import SettingsModal from "./SettingsModal.vue";
 import QuickPanel from "./QuickPanel.vue";
 import SyncQuickBar from "./SyncQuickBar.vue";
+import ClipboardRecognition from "./ClipboardRecognition.vue";
+import { createClipboardCapture, type ClipboardRecognition as Recognition, type ClipboardRecord, type ClipboardSnapshot } from "../lib/clipboard-capture";
 
 const settingsOpen = ref(false);
 const settingsInitialTab = ref<"security" | "sync">("security");
@@ -69,6 +71,7 @@ function onGlobalKeydown(event: KeyboardEvent) {
 
   // Do not open a second overlay over an unsaved editor/settings form.
   if (drawer.value.open || settingsOpen.value) return;
+  if (clipboardRecognition.value) return;
 
   // Ctrl+K 呼出快速面板（全局 Alt+Space 由 Rust 侧注册）
   if (mod && key === "k") {
@@ -159,6 +162,38 @@ const {
   vaultPath,
 } = useVault();
 
+const { unlocked, clipboardCaptureEpoch, clipboardCaptureBlocked } = useVault();
+const clipboardRecognition = ref<Recognition | null>(null);
+const clipboardDraft = ref<Pick<ClipboardRecord, "title" | "username" | "password" | "url" | "notes"> | null>(null);
+function canCaptureClipboard(): boolean {
+  return settings.clipboardRecognition && unlocked.value && !clipboardCaptureBlocked.value && !busy.value && !drawer.value.open
+    && !settingsOpen.value && !panelOpen.value && !clipboardRecognition.value
+    && !document.hidden && document.hasFocus();
+}
+const clipboardCapture = createClipboardCapture({
+  allowed: canCaptureClipboard,
+  read: lastSequence => invoke<ClipboardSnapshot | null>("read_clipboard_candidate", { lastSequence }),
+  result: value => { clipboardRecognition.value = value; },
+});
+function clearClipboardRecognition(): void {
+  clipboardCapture.invalidate();
+  clipboardRecognition.value = null;
+}
+function acceptClipboardRecord(index: number): void {
+  const record = clipboardRecognition.value?.records[index];
+  if (!record || !settings.clipboardRecognition || !unlocked.value || clipboardCaptureBlocked.value || busy.value || drawer.value.open
+    || settingsOpen.value || panelOpen.value || document.hidden || !document.hasFocus()) return;
+  clearClipboardRecognition();
+  openCreateDrawer();
+  clipboardDraft.value = { title: record.title, username: record.username, password: record.password, url: record.url, notes: record.notes };
+}
+function onClipboardFocus(): void { void clipboardCapture.focus(); }
+function onClipboardVisibility(): void { if (document.hidden) clearClipboardRecognition(); }
+watch([() => settings.clipboardRecognition, unlocked, clipboardCaptureEpoch, () => drawer.value.open, settingsOpen, panelOpen, busy], () => {
+  clearClipboardRecognition();
+  if (!drawer.value.open || !unlocked.value || !settings.clipboardRecognition) clipboardDraft.value = null;
+}, { flush: "sync" });
+
 const currentVaultName = computed(() => {
   const file = vaultPath.value.split(/[\\/]/).pop() ?? "";
   return file.replace(/\.kdbx$/i, "");
@@ -230,9 +265,17 @@ function onDocPointerDown(event: MouseEvent): void {
 onMounted(() => {
   window.addEventListener("keydown", onGlobalKeydown);
   document.addEventListener("pointerdown", onDocPointerDown);
+  window.addEventListener("focus", onClipboardFocus);
+  window.addEventListener("blur", clearClipboardRecognition);
+  document.addEventListener("visibilitychange", onClipboardVisibility);
 });
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onGlobalKeydown);
+  clearClipboardRecognition();
+  clipboardDraft.value = null;
+  window.removeEventListener("focus", onClipboardFocus);
+  window.removeEventListener("blur", clearClipboardRecognition);
+  document.removeEventListener("visibilitychange", onClipboardVisibility);
   document.removeEventListener("pointerdown", onDocPointerDown);
   if (deleteTimer) window.clearTimeout(deleteTimer);
 });
@@ -423,7 +466,8 @@ async function onSave() {
     </footer>
 
     <SettingsModal v-if="settingsOpen" :initial-tab="settingsInitialTab" @close="settingsOpen = false" />
-    <EntryDrawer v-if="drawer.open" />
+    <EntryDrawer v-if="drawer.open" :clipboard-draft="clipboardDraft" />
+    <ClipboardRecognition v-if="clipboardRecognition" :recognition="clipboardRecognition" @dismiss="clearClipboardRecognition" @accept="acceptClipboardRecord" />
     <QuickPanel
       v-if="panelOpen"
       @close="panelOpen = false"

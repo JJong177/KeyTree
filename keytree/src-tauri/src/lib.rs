@@ -5,6 +5,7 @@ use enigo::{Direction, Enigo, Key, Keyboard, Settings as EnigoSettings};
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+mod clipboard_capture;
 mod audit;
 mod diagnostics;
 mod secure_clipboard;
@@ -1100,6 +1101,7 @@ pub fn run() {
             snapshots::snapshot_export,
             snapshots::snapshot_create,
             open_url,
+            clipboard_capture::read_clipboard_candidate,
             copy_secret,
             clear_secret_clipboard,
             auto_type,

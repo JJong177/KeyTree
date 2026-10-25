@@ -12,7 +12,9 @@
     "test:hint": "node scripts/test-master-password-hint.mjs",
     "test:settings": "node scripts/test-settings.mjs",
     "test:encryption": "node scripts/test-encryption.mjs",
-    "test": "node scripts/test-features.mjs && node scripts/test-master-password-hint.mjs && node scripts/test-vault-save.mjs && node scripts/test-settings.mjs && node scripts/test-encryption.mjs",
+    "test:clipboard": "node scripts/test-clipboard-capture.mjs",
+    "test:clipboard-browser": "node scripts/test-clipboard-browser.mjs",
+    "test": "node scripts/test-features.mjs && node scripts/test-master-password-hint.mjs && node scripts/test-vault-save.mjs && node scripts/test-settings.mjs && node scripts/test-encryption.mjs && node scripts/test-clipboard-capture.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
