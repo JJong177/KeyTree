@@ -10,9 +10,11 @@ import { usePanelHost } from "./composables/usePanelHost";
 import UnlockView from "./components/UnlockView.vue";
 import MainView from "./components/MainView.vue";
 import ToastHost from "./components/ToastHost.vue";
+import { installQuickUnlockPolicy } from "./lib/quick-unlock";
 
 const { unlocked, flushSave, syncExternalChanges } = useVault();
 
+installQuickUnlockPolicy();
 useAutoLock();
 useClipboardStatus();
 useSystemGuard();

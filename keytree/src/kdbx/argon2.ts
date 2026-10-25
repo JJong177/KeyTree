@@ -48,7 +48,7 @@ export async function installArgon2(kdbxweb: Kdbxweb): Promise<void> {
   if (!argon2) throw new Error("argon2 引擎加载异常");
 
   kdbxweb.CryptoEngine.setArgon2Impl(
-    (password, salt, memory, iterations, length, parallelism, type) =>
+    (password, salt, memory, iterations, length, parallelism, type, version) =>
       argon2
         .hash({
           pass: new Uint8Array(password),
@@ -58,7 +58,7 @@ export async function installArgon2(kdbxweb: Kdbxweb): Promise<void> {
           hashLen: length,
           parallelism,
           type,
-          version: 0x13,
+          version,
         })
         .then((res) => {
           const out =

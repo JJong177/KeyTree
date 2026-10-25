@@ -7,12 +7,20 @@ import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { runInNewContext } from "node:vm";
 
 const project = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(join(project, "package.json"));
 const { build } = require("esbuild");
 const { parse, compileScript } = require("@vue/compiler-sfc");
 const kdbxweb = require(join(project, "vendor/kdbxweb/dist/kdbxweb.js"));
+const browser = { console, setTimeout, clearTimeout, WebAssembly, TextEncoder, TextDecoder, Uint8Array, ArrayBuffer, atob, btoa, performance };
+browser.self = browser; browser.window = browser;
+runInNewContext(await readFile(require.resolve("argon2-browser/dist/argon2-bundled.min.js"), "utf8"), browser);
+kdbxweb.CryptoEngine.setArgon2Impl(async (pass, salt, mem, time, hashLen, parallelism, type) => {
+  const result = await browser.argon2.hash({ pass: new Uint8Array(pass), salt: new Uint8Array(salt), mem, time, hashLen, parallelism, type, version: 0x13 });
+  return Uint8Array.from(result.hash).buffer;
+});
 const output = await mkdtemp(join(process.env.PI_SCRATCH_DIR || tmpdir(), "keytree-save-test-"));
 const outFile = join(output, "fixture.mjs");
 const modules = {
@@ -48,6 +56,8 @@ export { default as VaultReport } from './src/components/VaultReport.vue';
 export { default as MatchContext } from './src/components/MatchContext.vue';
 export { default as PublicPasswordHint } from './src/components/PublicPasswordHint.vue';
 export { default as MasterPasswordHintSettings } from './src/components/MasterPasswordHintSettings.vue';
+export { default as EncryptionSettings } from './src/components/EncryptionSettings.vue';
+export * from './src/lib/quick-unlock';
 export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue';`,
       resolveDir: project, loader: "ts",
     },
@@ -96,10 +106,11 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
       syncBytes: null, prepareError: null, commitError: null, prepareGate: null, commitGate: null, commits: [],
       webdavConfig: { configured: false, url: "", username: "", hasPassword: false, lastSyncedAt: null },
       snapshotItems: [], snapshotBytes: [], snapshotReadGate: null, snapshotReadError: null, snapshotCreateError: null, snapshotExportError: null, snapshotCreates: [], snapshotExports: [], dialogSaves: [], dialogSaveTarget: null,
+      realSave: false, written: [], failLoadAt: 0, snapshotGate: null, cacheWriteGate: null, cacheClearError: false, cacheEvents: [], helloGate: null, helloBytes: null,
       async invoke(name, args) {
         state.nativeCalls.push(name);
         if (name === "cancel_auto_type" || name === "clear_secret_clipboard") return;
-        if (name === "quick_unlock_load") throw state.helloError ?? "HELLO_NOT_VERIFIED";
+        if (name === "quick_unlock_load") { if (state.helloGate) await state.helloGate; if (state.helloBytes) return state.helloBytes; throw state.helloError ?? "HELLO_NOT_VERIFIED"; }
         if (name === "vault_diagnostics") {
           if (state.diagnosticsGate) await state.diagnosticsGate;
           if (state.diagnosticsFailure) throw new Error("SYNTHETIC_DIAGNOSTICS_FAILURE");
@@ -133,6 +144,7 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
         if (name === "snapshot_create") {
           if (state.snapshotCreateError) throw state.snapshotCreateError;
           state.snapshotCreates.push(args);
+          if (state.snapshotGate) await state.snapshotGate;
           const item = { id: `snapshot-2000000000-${state.snapshotCreates.length}.kdbx`, createdAt: 2000, size: 128, stat: { mtimeMs: 2, size: 128, mtimeNs: "200" } };
           state.snapshotItems.unshift(item); return item;
         }
@@ -164,23 +176,28 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
           if (state.writeGate) await state.writeGate;
           if (state.failWrite) throw new Error("SIMULATED_WRITE_FAILURE");
           if (args.expectedStat && (args.expectedStat.mtimeMs !== state.stat.mtimeMs || args.expectedStat.size !== state.stat.size || args.expectedStat.mtimeNs !== state.stat.mtimeNs)) throw new Error("文件版本已发生外部修改，保存已中止");
+          state.written.push(args);
+          if (state.realSave) state.vaultBytes = [...args.bytes];
           return;
         }
         if (name === "watch_vault") { state.watches.push(args.path); return; }
         if (name === "hide_panel") return;
-        if (name === "quick_unlock_clear" || name === "quick_unlock_save" || name === "set_screenshot_protection") return;
+        if (name === "quick_unlock_save") { state.cacheEvents.push("save-start"); if (state.cacheWriteGate) await state.cacheWriteGate; state.cacheEvents.push("save-end"); return; }
+        if (name === "quick_unlock_clear") { state.cacheEvents.push("clear"); if (state.cacheClearError) throw new Error("SYNTHETIC_CACHE_CLEAR_FAILURE"); return; }
+        if (name === "set_screenshot_protection") return;
         throw new Error(`Unexpected system call: ${name}`);
       },
       engine: {
         ...kdbxweb,
         Kdbx: class extends kdbxweb.Kdbx {
-          static async load(...args) { state.loads++; if (state.loadGate) await state.loadGate; return kdbxweb.Kdbx.load(...args); }
+          static async load(...args) { state.loads++; if (state.loadGate) await state.loadGate; if (state.failLoadAt === state.loads) throw new Error("SYNTHETIC_VERIFY_FAILURE"); return kdbxweb.Kdbx.load(...args); }
           static create(...args) {
             const db = kdbxweb.Kdbx.create(...args);
             state.db = db;
             db.save = async () => {
               state.snapshots.push([...db.getDefaultGroup().allEntries()].map(e => e.fields.get("Title")));
               if (state.saveGate) await state.saveGate;
+              if (state.realSave) return kdbxweb.Kdbx.prototype.save.call(db);
               return new ArrayBuffer(64);
             };
             return db;
@@ -191,6 +208,8 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
     globalThis.__keytreeSaveTest = state;
     Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: { writeText: async () => { throw new Error("SYNTHETIC_FALLBACK_DENIED"); }, readText: async () => { state.clipboardReads++; return ""; } } } });
     const mod = await import(`${pathToFileURL(outFile).href}?fixture=${++fixtureId}`);
+    assert.equal(state.nativeCalls.includes("quick_unlock_clear"), false, "importing shared modules must not install main-window credential policy");
+    mod.installQuickUnlockPolicy();
     mod.settings.quickUnlock = false;
     const vault = mod.useVault();
     assert.equal(await vault.createVault("SYNTHETIC_ONLY.kdbx", "Synthetic", "SYNTHETIC_ONLY"), true);
@@ -233,6 +252,166 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
     assert.fail("Expected async save phase was not reached");
   }
 
+  async function encryptionFixture(f) {
+    const db = f.state.db;
+    db.setKdf(kdbxweb.Consts.KdfId.Aes);
+    const entry = db.createEntry(db.getDefaultGroup());
+    entry.fields.set("Title", "Upgrade entry");
+    entry.fields.set("Password", kdbxweb.ProtectedValue.fromString("SYNTHETIC_ENTRY"));
+    f.state.vaultBytes = Array.from(new Uint8Array(await kdbxweb.Kdbx.prototype.save.call(db)));
+    assert.equal(await f.vault.openVault("SYNTHETIC_ONLY.kdbx", "SYNTHETIC_ONLY"), true);
+    f.state.writes.length = 0; f.state.written.length = 0;
+    f.state.snapshotCreates.length = 0; f.state.nativeCalls.length = 0;
+    return [...f.state.vaultBytes];
+  }
+  async function securityUntil(predicate) {
+    for (let n = 0; n < 1000; n++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 10)); }
+    assert.fail("Security operation did not reach expected phase");
+  }
+  await scenario("new vaults use strengthened defaults and cost measurement never writes", async f => {
+    assert.equal(f.vault.vaultEncryption.value.memoryMiB, 64);
+    assert.equal(f.vault.vaultEncryption.value.iterations, 3);
+    const before = f.state.writes.length;
+    const ms = await f.vault.testEncryptionSpeed("recommended");
+    assert.ok(ms > 0);
+    assert.equal(f.state.writes.length, before);
+    assert.equal(f.vault.hasUnsavedChanges.value, false);
+  });
+  await scenario("encryption UI requires confirmation and upgrade backs up then atomically writes authenticated KDBX", async f => {
+    await encryptionFixture(f);
+    const ui = f.mount(f.EncryptionSettings);
+    await ui.apply(); assert.equal(f.state.writes.length, 0);
+    ui.confirmed = true; await ui.apply();
+    assert.equal(ui.failed, false, f.vault.error.value);
+    assert.equal(f.state.snapshotCreates.length, 1);
+    assert.equal(f.state.written.length, 1);
+    assert.ok(f.state.nativeCalls.indexOf("snapshot_create") < f.state.nativeCalls.indexOf("write_vault"));
+    assert.deepEqual(f.state.written[0].expectedStat, f.state.stat);
+    assert.equal(f.vault.vaultEncryption.value.kdf, "Argon2id");
+    assert.equal(f.vault.vaultEncryption.value.memoryMiB, 64);
+    assert.equal(f.vault.draftOf(f.vault.entries.value[0].uuid).password, "SYNTHETIC_ENTRY");
+    const saved = new Uint8Array(f.state.written[0].bytes).buffer;
+    const reopened = await kdbxweb.Kdbx.load(saved, new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString("SYNTHETIC_ONLY")));
+    assert.equal([...reopened.getDefaultGroup().allEntries()][0].fields.get("Password").getText(), "SYNTHETIC_ENTRY");
+    assert.equal(f.vault.hasUnsavedChanges.value, false);
+    await f.nextTick(); assert.equal(ui.target.memoryMiB, 64);
+  });
+  for (const failure of ["verify", "backup", "write", "external"]) {
+    await scenario(`encryption ${failure} failure preserves original file, credentials and in-memory parameters`, async f => {
+      const original = await encryptionFixture(f);
+      if (failure === "verify") f.state.failLoadAt = f.state.loads + 2;
+      if (failure === "backup") f.state.snapshotCreateError = "SNAP_IO";
+      if (failure === "write") f.state.failWrite = true;
+      if (failure === "external") f.state.stat.mtimeNs = "changed";
+      assert.equal(await f.vault.upgradeEncryption("recommended"), false);
+      assert.deepEqual(f.state.vaultBytes, original);
+      assert.equal(f.vault.vaultEncryption.value.kdf, "AES-KDF");
+      assert.equal(f.state.written.length, 0);
+      assert.equal(f.vault.hasUnsavedChanges.value, false);
+      assert.equal(f.vault.busy.value, false);
+    });
+  }
+  await scenario("locking during encryption backup cancels the upgrade before writing", async f => {
+    const original = await encryptionFixture(f);
+    const blocked = gate(); f.state.snapshotGate = blocked.promise;
+    const upgrading = f.vault.upgradeEncryption("recommended");
+    await securityUntil(() => f.state.snapshotCreates.length > 0);
+    const locking = f.vault.lock({ force: true });
+    blocked.release();
+    assert.equal(await upgrading, false); assert.equal(await locking, true);
+    assert.equal(f.vault.unlocked.value, false);
+    assert.equal(f.state.written.length, 0); assert.deepEqual(f.state.vaultBytes, original);
+  });
+  await scenario("edits arriving during native encryption write remain pending for normal save", async f => {
+    await encryptionFixture(f);
+    const blocked = gate(); f.state.writeGate = blocked.promise;
+    const upgrading = f.vault.upgradeEncryption("recommended");
+    await securityUntil(() => f.state.writes.length > 0);
+    f.vault.touchUsage(f.vault.entries.value[0].uuid);
+    blocked.release(); assert.equal(await upgrading, true);
+    assert.equal(f.vault.hasUnsavedChanges.value, true);
+    f.state.writeGate = null;
+    assert.equal(await f.vault.flushSave(), true);
+    assert.equal(f.vault.hasUnsavedChanges.value, false);
+    assert.equal(f.vault.vaultEncryption.value.memoryMiB, 64);
+  });
+  await scenario("disabled quick unlock rejects cached reads, including Hello response after disabling", async f => {
+    const loads = f.state.loads;
+    f.state.nativeCalls.length = 0;
+    assert.equal(await f.vault.helloUnlock("SYNTHETIC_ONLY.kdbx"), false);
+    assert.equal(f.state.nativeCalls.includes("quick_unlock_load"), false);
+    f.settings.quickUnlock = true;
+    const blocked = gate(); f.state.helloGate = blocked.promise;
+    f.state.helloBytes = Array.from(new TextEncoder().encode(JSON.stringify({ p: "SYNTHETIC_ONLY", k: null })));
+    const pending = f.vault.helloUnlock("SYNTHETIC_ONLY.kdbx");
+    f.settings.highSecurityMode = true;
+    blocked.release(); assert.equal(await pending, false);
+    assert.equal(f.state.loads, loads);
+    assert.equal(f.settings.quickUnlock, false); assert.equal(f.settings.autoHelloUnlock, false);
+  });
+  await scenario("disabling credentials clears after in-flight write and reports deletion failure", async f => {
+    await f.clearQuickUnlockCache(); f.state.cacheEvents.length = 0;
+    f.settings.quickUnlock = true;
+    const blocked = gate(); f.state.cacheWriteGate = blocked.promise;
+    const caching = f.cacheQuickUnlock("SYNTHETIC_ONLY.kdbx", "SYNTHETIC_ONLY", null);
+    await until(() => f.state.cacheEvents.includes("save-start"));
+    f.settings.highSecurityMode = true;
+    const clearing = f.clearQuickUnlockCache(); blocked.release();
+    await caching; await clearing;
+    assert.deepEqual(f.state.cacheEvents.slice(0, 2), ["save-start", "save-end"]);
+    assert.equal(f.state.cacheEvents.at(-1), "clear");
+    f.state.cacheClearError = true;
+    await assert.rejects(f.clearQuickUnlockCache(), /SYNTHETIC_CACHE_CLEAR_FAILURE/);
+    f.state.cacheClearError = false;
+    await f.clearQuickUnlockCache();
+  });
+  await scenario("locking cancels an in-flight password unlock without resurrecting decrypted state", async f => {
+    await encryptionFixture(f);
+    const blocked = gate(); f.state.loadGate = blocked.promise;
+    const loads = f.state.loads;
+    const opening = f.vault.openVault("SYNTHETIC_ONLY.kdbx", "SYNTHETIC_ONLY");
+    await until(() => f.state.loads > loads);
+    assert.equal(await f.vault.lock({ force: true }), true);
+    blocked.release(); assert.equal(await opening, false);
+    assert.equal(f.vault.unlocked.value, false);
+    assert.equal(f.vault.busy.value, false);
+  });
+  await scenario("locking cancels an in-flight creation before writing or caching credentials", async f => {
+    const blocked = gate(); f.state.saveGate = blocked.promise;
+    const creating = f.vault.createVault("SYNTHETIC_CANCELLED.kdbx", "Synthetic", "SYNTHETIC_ONLY");
+    await until(() => f.state.snapshots.length > 0);
+    assert.equal(await f.vault.lock({ force: true }), true);
+    blocked.release(); assert.equal(await creating, false);
+    assert.equal(f.vault.unlocked.value, false);
+    assert.equal(f.state.writes.includes("SYNTHETIC_CANCELLED.kdbx"), false);
+    assert.equal(f.vault.busy.value, false);
+  });
+  await scenario("stale Hello credentials are rejected and only that vault cache is cleared", async f => {
+    await encryptionFixture(f);
+    f.settings.quickUnlock = true;
+    f.state.helloBytes = Array.from(new TextEncoder().encode(JSON.stringify({ p: "WRONG_SYNTHETIC_ONLY", k: null })));
+    assert.equal(await f.vault.helloUnlock("SYNTHETIC_ONLY.kdbx"), false);
+    assert.match(f.vault.error.value, /缓存凭据已失效/);
+    assert.equal(f.vault.busy.value, false);
+  });
+  await scenario("locking invalidates a delayed Hello verification before vault decryption", async f => {
+    f.settings.quickUnlock = true;
+    const loads = f.state.loads, blocked = gate();
+    f.state.helloGate = blocked.promise;
+    f.state.helloBytes = Array.from(new TextEncoder().encode(JSON.stringify({ p: "SYNTHETIC_ONLY", k: null })));
+    const hello = f.vault.helloUnlock("SYNTHETIC_ONLY.kdbx");
+    assert.equal(await f.vault.lock({ force: true }), true);
+    blocked.release(); assert.equal(await hello, false);
+    assert.equal(f.vault.unlocked.value, false); assert.equal(f.state.loads, loads);
+  });
+  await scenario("raw key-file bytes remain unchanged when creating and applying credentials", async f => {
+    const raw = new Uint8Array(32).fill(27);
+    assert.equal(await f.vault.createVault("SYNTHETIC_KEY.kdbx", "Synthetic", "SYNTHETIC_ONLY", raw), true);
+    assert.deepEqual(raw, new Uint8Array(32).fill(27));
+    const next = new Uint8Array(32).fill(29);
+    assert.equal(await f.vault.applyKeyFile(next), true);
+    assert.deepEqual(next, new Uint8Array(32).fill(29));
+  });
   await scenario("new entry write failure keeps drawer open, displays error, and retry creates no duplicate", async f => {
     f.vault.openCreateDrawer();
     const drawer = f.mount(f.EntryDrawer);
@@ -882,6 +1061,9 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
   });
   await scenario("Hello refusal does not read vault or clear cache and safe copy uses native TTL only", async f => {
     const loads = f.state.loads;
+    f.settings.quickUnlock = true;
+    await f.nextTick();
+    await until(() => !f.vault.busy.value);
     f.state.nativeCalls.length = 0;
     for (const code of ["HELLO_NOT_VERIFIED", "HELLO_UNAVAILABLE"]) {
       f.state.helloError = code;

@@ -3,12 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Kdbx, KdbxEntry, KdbxGroup } from "kdbxweb";
 import { getKdbxweb, type Kdbxweb } from "../kdbx/kdbxweb";
 import { installArgon2 } from "../kdbx/argon2";
+import { applyEncryptionProfile, encryptionInfo, encryptionTarget, benchmarkEncryption, type EncryptionProfile } from "../kdbx/security";
 import {
   parseLegacyTotp,
   type TotpConfig,
 } from "../lib/totp";
 import { dateInputValue, hostOf } from "../lib/format";
 import { DEFAULT_AUTO_TYPE, parseSequence } from "../lib/autotype";
+import { cacheQuickUnlock, clearQuickUnlockCache, credentialCachingAllowed } from "../lib/quick-unlock";
 import { settings, upsertVault } from "../lib/settings";
 import { fetchFavicon, bytesToDataUrl } from "../lib/favicon";
 import { buildChromeCsv } from "../lib/csv";
@@ -284,7 +286,13 @@ const selectedIsTrash = computed(
 );
 
 /** 页脚展示的真实库信息（不要写死，库可能是 AES-KDF 或 Argon2d） */
+const encryptionRevision = ref(0);
+const vaultEncryption = computed(() => {
+  void encryptionRevision.value;
+  return db.value && engine.value ? encryptionInfo(engine.value, db.value.header) : null;
+});
 const vaultInfo = computed(() => {
+  void encryptionRevision.value;
   const current = db.value;
   if (!current) return { kdf: "", version: "" };
   const params = current.header.kdfParameters as unknown as
@@ -938,7 +946,7 @@ function tryLoad(
 ): Promise<Kdbx> {
   return k.Kdbx.load(
     new Uint8Array(bytes).buffer,
-    new k.Credentials(k.ProtectedValue.fromString(password), keyFile)
+    new k.Credentials(k.ProtectedValue.fromString(password), keyFile?.slice())
   );
 }
 
@@ -951,44 +959,46 @@ async function stashQuickUnlock(
   password: string,
   keyFile: Uint8Array | null
 ): Promise<void> {
-  try {
-    if (!settings.quickUnlock) {
-      await invoke("quick_unlock_clear").catch(() => {});
-      return;
-    }    const secret = JSON.stringify({
-      p: password,
-      k: keyFile ? Array.from(keyFile) : null,
-    });
-    await invoke("quick_unlock_save", {
-      vaultPath: path,
-      secret: Array.from(new TextEncoder().encode(secret)),
-    });
-  } catch {
-    // 存不进去就回到纯主密码解锁，不影响主流程
-  }
+  try { await cacheQuickUnlock(path, password, keyFile); }
+  catch { /* Saving a convenience cache must not fail the primary password unlock. */ }
+}
+
+let unlockGeneration = 0, unlockInFlight = 0;
+function startUnlock(): number {
+  const run = ++unlockGeneration;
+  unlockInFlight = run; busy.value = true;
+  return run;
+}
+function unlockActive(run: number): boolean { return unlockGeneration === run && unlockInFlight === run; }
+function finishUnlock(run: number): void {
+  if (unlockInFlight === run) { unlockInFlight = 0; busy.value = false; }
 }
 
 /** Windows Hello 验证与 DPAPI 取凭据由同一原生命令执行，前端不持有可绕过的验证门禁。 */
 async function helloUnlock(path: string): Promise<boolean> {
-  if (busy.value) return false;
-  busy.value = true;
+  if (busy.value || unlockInFlight) return false;
+  if (!credentialCachingAllowed()) { error.value = "快速解锁已关闭，请使用主密码和所需密钥文件解锁"; return false; }
+  const run = startUnlock();
   error.value = "";
   try {
     const secretBytes = await invoke<number[]>("quick_unlock_load", { vaultPath: path });
+    if (!unlockActive(run) || !credentialCachingAllowed()) return false;
     const decoded = JSON.parse(
       new TextDecoder().decode(new Uint8Array(secretBytes))
     ) as { p: string; k: number[] | null };
     const keyFile = decoded.k ? new Uint8Array(decoded.k) : null;
-    const ok = await openVault(path, decoded.p, keyFile);
+    const ok = await openVault(path, decoded.p, keyFile, run);
     if (!ok) {
+      if (!unlockActive(run)) return false;
       // 文件 IO 或公开版本冲突不说明凭据失效，不能因此清除缓存。
       if (errorKind.value === "bad-key") {
-        await invoke("quick_unlock_clear", { vaultPath: path }).catch(() => {});
+        await clearQuickUnlockCache(path).catch(() => {});
         error.value = "快速解锁的缓存凭据已失效，请用主密码解锁";
       }
     }
     return ok;
   } catch (e) {
+    if (!unlockActive(run)) return false;
     const reason = msg(e);
     error.value = reason.includes("HELLO_NOT_VERIFIED")
       ? "Windows Hello 验证未通过或已取消，可继续使用主密码解锁"
@@ -997,31 +1007,38 @@ async function helloUnlock(path: string): Promise<boolean> {
         : "快速解锁不可用，请用主密码解锁";
     return false;
   } finally {
-    busy.value = false;
+    finishUnlock(run);
   }
 }
 
 async function openVault(
   path: string,
   password: string,
-  keyFile: Uint8Array | null = null
+  keyFile: Uint8Array | null = null,
+  helloRun?: number
 ): Promise<boolean> {
-  busy.value = true;
+  if (helloRun === undefined && (busy.value || unlockInFlight)) return false;
+  const run = helloRun ?? startUnlock();
+  const active = () => unlockActive(run) && (helloRun === undefined || credentialCachingAllowed());
+  if (!active()) return false;
   error.value = "";
   errorKind.value = "none";
   status.value = "读取文件…";
   try {
     const k = await ensureEngine();
+    if (!active()) return false;
     const readStat = await statOf(path);
     let bytes: number[];
     try {
       bytes = await invoke<number[]>("read_vault", { path });
     } catch (e) {
+      if (!active()) return false;
       errorKind.value = "io";
       error.value = `读不到文件：${msg(e)}`;
       status.value = "";
       return false;
     }
+    if (!active()) return false;
     // 先验文件头：能准确区分「选错文件」「文件被截断」「KeePass 1.x 老库」，
     // 而不是把它们一律报成主密码不正确
     const problem = headerProblem(bytes);
@@ -1038,6 +1055,7 @@ async function openVault(
     try {
       loaded = await tryLoad(k, bytes, password, keyFile);
     } catch (e) {
+      if (!active()) return false;
       // 从网页/聊天窗口复制主密码时常带首尾空白，密码框里又看不出来。
       // 只在确实存在空白时重试一次，并明确告知，绝不静默修改用户密码。
       const trimmed = password.trim();
@@ -1045,15 +1063,17 @@ async function openVault(
       loaded = await tryLoad(k, bytes, trimmed, keyFile);
       note = "已忽略主密码首尾的空白字符";
     }
+    if (!active()) return false;
 
     const finalReadStat = await statOf(path);
+    if (!active()) return false;
     if (!readStat || !sameStat(readStat, finalReadStat)) throw new Error("读取或解密期间文件已变化，请重新选择并解锁");
     resetSaveState();
     cancelImport();
     knownPublicData = publicDataSnapshot(k, loaded.header);
     db.value = loaded;
     vaultPath.value = path;
-    keyFileBytes.value = keyFile;
+    keyFileBytes.value = keyFile?.slice() ?? null;
     selectedGroupUuid.value = "all";
     query.value = "";
     // 换库必须清图标缓存：host → 图标 id 是跨库不通用的 uuid
@@ -1072,6 +1092,7 @@ async function openVault(
     void invoke("watch_vault", { path }).catch(() => {});
     return true;
   } catch (e) {
+    if (!active()) return false;
     status.value = "";
     const classified = classifyUnlockError(e, !!keyFile);
     errorKind.value = classified.kind;
@@ -1085,7 +1106,7 @@ async function openVault(
     error.value = `解锁失败：${classified.text}${suspicious}`;
     return false;
   } finally {
-    busy.value = false;
+    if (helloRun === undefined) finishUnlock(run);
   }
 }
 
@@ -1095,29 +1116,34 @@ async function createVault(
   password: string,
   keyFile: Uint8Array | null = null
 ): Promise<boolean> {
-  busy.value = true;
+  if (busy.value || unlockInFlight) return false;
+  const run = startUnlock();
   error.value = "";
   status.value = "创建数据库…";
   try {
     const k = await ensureEngine();
+    if (!unlockActive(run)) return false;
     const credentials = new k.Credentials(
       k.ProtectedValue.fromString(password),
-      keyFile
+      keyFile?.slice()
     );
     const created = k.Kdbx.create(credentials, name || "我的密码库");
-    // kdbxweb 默认 Argon2d，KeyTree 统一用 Argon2id（KeePassXC 同款默认）
-    created.setKdf(k.Consts.KdfId.Argon2id);
-    status.value = "加密中（Argon2id，约 1-2 秒）…";
+    applyEncryptionProfile(k, created, "recommended");
+    status.value = "加密中（Argon2id · 64 MiB · 3 次迭代）…";
     const saved = await created.save();
+    if (!unlockActive(run)) return false;
     status.value = "写入磁盘…";
     await writeBytes(path, saved);
+    if (!unlockActive(run)) return false;
+    const createdStat = await statOf(path);
+    if (!unlockActive(run)) return false;
 
     resetSaveState();
     cancelImport();
     knownPublicData = publicDataSnapshot(k, created.header);
     db.value = created;
     vaultPath.value = path;
-    keyFileBytes.value = keyFile;
+    keyFileBytes.value = keyFile?.slice() ?? null;
     selectedGroupUuid.value = "all";
     query.value = "";
     rebuild();
@@ -1127,15 +1153,97 @@ async function createVault(
     upsertVault(path);
     void stashQuickUnlock(path, password, keyFile);
     void recordAudit("unlock");
-    knownStat.value = await statOf(path);
+    knownStat.value = createdStat;
     void invoke("watch_vault", { path }).catch(() => {});
     return true;
   } catch (e) {
+    if (!unlockActive(run)) return false;
     error.value = `创建失败：${msg(e)}`;
     return false;
   } finally {
-    busy.value = false;
+    finishUnlock(run);
   }
+}
+
+let encryptionGeneration = 0;
+watch([db, vaultPath], () => { encryptionGeneration++; }, { flush: "sync" });
+function encryptionPreview(profile: EncryptionProfile) {
+  const current = db.value, k = engine.value;
+  if (!current || !k) throw new Error("请先解锁密码库");
+  return encryptionTarget(k, current.header, profile);
+}
+async function testEncryptionSpeed(profile: EncryptionProfile): Promise<number | null> {
+  const current = db.value, k = engine.value;
+  if (!current || !k || busy.value || saveBusy || syncing) return null;
+  const run = ++encryptionGeneration;
+  busy.value = true; error.value = "";
+  const task = saveChain.catch(() => false).then(async () => {
+    if (run !== encryptionGeneration || db.value !== current) return null;
+    saveBusy = true;
+    try {
+      const ms = await benchmarkEncryption(k, encryptionTarget(k, current.header, profile));
+      return run === encryptionGeneration && db.value === current ? ms : null;
+    } catch {
+      if (run === encryptionGeneration) error.value = "本机成本测试失败（可能内存不足），密码库未修改";
+      return null;
+    } finally { saveBusy = false; }
+  });
+  saveChain = task.then(() => false);
+  try { return await task; } finally { busy.value = false; }
+}
+
+/** Exclusive queue job. Only adopt the new header after authenticated round-trip and atomic write. */
+async function upgradeEncryption(profile: EncryptionProfile): Promise<boolean> {
+  const current = db.value, k = engine.value, path = vaultPath.value;
+  if (!current || !k || !path || busy.value || saveBusy || syncing || webdavInFlight || snapshotInFlight || drawer.value.open) return false;
+  const run = ++encryptionGeneration;
+  const active = () => run === encryptionGeneration && db.value === current && vaultPath.value === path;
+  const check = () => { if (!active()) throw new Error("密码库已锁定或切换，升级已取消"); };
+  busy.value = true; error.value = ""; cancelScheduledSave();
+  const task = saveChain.catch(() => false).then(async () => {
+    try {
+      check();
+      // Flush existing edits through the normal merge/atomic-save pipeline first.
+      if (hasUnsavedChanges.value && !(await persist(false))) throw new Error("尚有未保存的修改，请先重试保存");
+      check();
+      if (hasUnsavedChanges.value) throw new Error("密码库仍在变化，请稍后再升级");
+      saveBusy = true;
+      const revision = changeRevision.value;
+      const expectedStat = knownStat.value;
+      if (!expectedStat?.mtimeNs || !sameStat(expectedStat, await statOf(path))) throw new Error("磁盘版本已变化，请重新打开密码库后升级");
+      const bytes = await invoke<number[]>("read_vault", { path }); check();
+      const candidate = await k.Kdbx.load(new Uint8Array(bytes).buffer, current.credentials); check();
+      if (candidate.getDefaultGroup().uuid.id !== current.getDefaultGroup().uuid.id || publicDataSnapshot(k, candidate.header) !== knownPublicData) throw new Error("磁盘版本与当前库不一致，请重新打开后升级");
+      const target = applyEncryptionProfile(k, candidate, profile);
+      status.value = "正在生成增强密文并验证，请勿退出…";
+      const saved = await candidate.save(); check();
+      const verified = await k.Kdbx.load(saved, current.credentials); check();
+      const info = encryptionInfo(k, verified.header);
+      if (info.kdf !== "Argon2id" || info.memoryMiB !== target.memoryMiB || info.iterations !== target.iterations || info.parallelism !== target.parallelism || verified.getDefaultGroup().uuid.id !== current.getDefaultGroup().uuid.id) throw new Error("新密文校验未通过，原文件未覆盖");
+      if (revision !== changeRevision.value || !sameStat(expectedStat, await statOf(path))) throw new Error("验证期间密码库发生变化，请重试");
+      check();
+      // Explicit backup is mandatory even though normal native writes also archive old versions.
+      await invoke("snapshot_create", { vaultPath: path, expectedStat }); check();
+      if (revision !== changeRevision.value) throw new Error("备份期间密码库发生变化，请重试");
+      await writeBytes(path, saved, expectedStat);
+      current.header = verified.header;
+      current.meta.headerHash = undefined;
+      current.meta.settingsChanged = candidate.meta.settingsChanged;
+      changeRevision.value++;
+      // Edits arriving during native write remain dirty; only this snapshot is confirmed.
+      persistedRevision.value = revision + 1;
+      knownPublicData = publicDataSnapshot(k, current.header);
+      encryptionRevision.value++;
+      error.value = ""; saveError = "";
+      status.value = "加密强度已升级并验证。旧备份仍使用原来的参数，请按需手动同步";
+      return true;
+    } catch (e) {
+      if (active()) { error.value = `加密升级未完成：${msg(e)}`; status.value = "原加密参数保持不变；已保存的数据仍可正常解锁"; }
+      return false;
+    } finally { saveBusy = false; }
+  });
+  saveChain = task;
+  try { return await task; } finally { busy.value = false; }
 }
 
 /** 修改主密码：先用旧密码（连同当前密钥文件）重解一遍验证，再换新密码落盘 */
@@ -1154,7 +1262,7 @@ async function changeMasterPassword(
       new Uint8Array(bytes).buffer,
       new k.Credentials(
         k.ProtectedValue.fromString(currentPassword),
-        keyFileBytes.value
+        keyFileBytes.value?.slice()
       )
     );
   } catch {
@@ -1185,15 +1293,15 @@ async function applyKeyFile(bytes: Uint8Array | null): Promise<boolean> {
   if (!current) return false;
   error.value = "";
   try {
-    await current.credentials.setKeyFile(bytes);
-    keyFileBytes.value = bytes;
+    await current.credentials.setKeyFile(bytes?.slice());
+    keyFileBytes.value = bytes?.slice() ?? null;
     const ok = await saveVault();
     if (ok) {
       status.value = bytes
         ? "已启用密钥文件：以后打开这个库必须同时提供它"
         : "已移除密钥文件";
       // 缓存的解锁凭据已过期（密钥文件变了），只清这个库的，其他库不动
-      await invoke("quick_unlock_clear", { vaultPath: vaultPath.value }).catch(() => {});
+      await clearQuickUnlockCache(vaultPath.value).catch(() => {});
     }
     return ok;
   } catch (e) {
@@ -1900,6 +2008,8 @@ function closeDrawer(): void {
  * 返回值只表示是否已经锁定，不表示强制锁定前保存一定成功。
  */
 async function lock(options: { force?: boolean } = {}): Promise<boolean> {
+  unlockGeneration++;
+  encryptionGeneration++;
   invalidateWebdavSync();
   invalidateSnapshots();
   // Before any asynchronous save, cancel injection and conditionally clear only our clipboard.
@@ -2028,6 +2138,10 @@ export function useVault() {
     unlocked,
     vaultPath,
     vaultInfo,
+    vaultEncryption,
+    encryptionPreview,
+    testEncryptionSpeed,
+    upgradeEncryption,
     groups,
     entries,
     visibleEntries,

@@ -7,6 +7,8 @@ export interface AppSettings {
   clipboardSeconds: number;
   /** 解锁成功后缓存 DPAPI 密钥副本，之后可用 Windows Hello 快速解锁 */
   quickUnlock: boolean;
+  /** 禁止将解锁凭据持久缓存；不改变 KDBX 密钥或加密参数 */
+  highSecurityMode: boolean;
   /** 窗口防截屏（截图/录屏里 KeyTree 显示为黑块） */
   screenshotProtection: boolean;
   /** 上次打开的库路径，解锁页预填 */
@@ -60,7 +62,8 @@ function readStored(): string | null {
 const defaults: AppSettings = {
   autoLockMinutes: 10,
   clipboardSeconds: 30,
-  quickUnlock: true,
+  quickUnlock: false,
+  highSecurityMode: false,
   screenshotProtection: true,
   lastVaultPath: "",
   vaults: [],
@@ -95,8 +98,9 @@ function load(): AppSettings {
         300,
         defaults.clipboardSeconds
       ),
-      // 旧版本存的 JSON 没有这几项：布尔缺省 true（!== false），路径缺省空
-      quickUnlock: parsed.quickUnlock !== false,
+      // Only an explicit opt-in enables local credential caching.
+      quickUnlock: parsed.highSecurityMode !== true && parsed.quickUnlock === true,
+      highSecurityMode: parsed.highSecurityMode === true,
       screenshotProtection: parsed.screenshotProtection !== false,
       lastVaultPath:
         typeof parsed.lastVaultPath === "string" ? parsed.lastVaultPath : "",
@@ -113,7 +117,7 @@ function load(): AppSettings {
             }))
         : [],
       launchAtLogin: parsed.launchAtLogin === true,
-      autoHelloUnlock: parsed.autoHelloUnlock !== false,
+      autoHelloUnlock: parsed.highSecurityMode !== true && parsed.autoHelloUnlock !== false,
       genMode: parsed.genMode === "phrase" ? "phrase" : "chars",
       genLength: clamp(Number(parsed.genLength), 8, 64, defaults.genLength),
       // 旧版本没有这一项：布尔缺省 true（!== false）

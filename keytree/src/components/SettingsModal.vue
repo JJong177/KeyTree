@@ -14,6 +14,8 @@ import AuditTimeline from "./AuditTimeline.vue";
 import MasterPasswordHintSettings from "./MasterPasswordHintSettings.vue";
 import WebdavSettings from "./WebdavSettings.vue";
 import BackupSnapshots from "./BackupSnapshots.vue";
+import EncryptionSettings from "./EncryptionSettings.vue";
+import { clearQuickUnlockCache } from "../lib/quick-unlock";
 
 const props = withDefaults(defineProps<{ initialTab?: "security" | "convenience" | "data" | "health" | "audit" | "sync" | "about" }>(), { initialTab: "security" });
 const emit = defineEmits<{ close: [] }>();
@@ -139,20 +141,15 @@ watch(
   }
 );
 
-watch(
-  () => settings.quickUnlock,
-  async (on) => {
-    // 关掉开关时立刻删掉本机密钥副本；打开则等下次主密码解锁时自动重建
-    if (!on) {
-      try {
-        await invoke("quick_unlock_clear");
-        toast("已清除快速解锁密钥");
-      } catch {
-        /* 清不掉（文件本来就没有）也无妨 */
-      }
-    }
-  }
-);
+function toggleHighSecurity() { return runAction(async () => {
+  settings.highSecurityMode = !settings.highSecurityMode;
+  if (settings.highSecurityMode) {
+    try {
+      await clearQuickUnlockCache();
+      say("高安全模式已启用，本机解锁缓存已清除。之后需主密码及所需密钥文件解锁", "ok");
+    } catch { say("已禁止快速解锁，但本机缓存删除失败，请点击清除缓存重试", "err"); }
+  } else say("已退出高安全模式；快速解锁仍保持关闭，需要时可自行开启", "ok");
+}); }
 
 function clearQuickUnlock() { return runAction(clearQuickUnlockAction); }
 async function clearQuickUnlockAction() {
@@ -163,7 +160,7 @@ async function clearQuickUnlockAction() {
   }
   confirmClearQuick.value = false;
   try {
-    await invoke("quick_unlock_clear");
+    await clearQuickUnlockCache();
     say("已清除本机缓存的解锁密钥，下次需主密码", "ok");
   } catch (e) {
     say(`清除失败：${(e as Error).message}`, "err");
@@ -381,6 +378,14 @@ const clipboardOptions = [
         </div>
         <!-- 安全 -->
         <div v-show="tab === 'security'" class="space-y-6">
+          <EncryptionSettings @working="working = $event" />
+          <section>
+            <label class="flex items-start gap-2 text-sm font-medium text-stone-700">
+              <input type="checkbox" :checked="settings.highSecurityMode" class="mt-0.5 h-4 w-4" @change="toggleHighSecurity" />
+              高安全模式（不缓存解锁凭据）
+            </label>
+            <p class="mt-2 text-xs leading-5 text-stone-500">关闭 Windows Hello 快速解锁和自动尝试，清除本机 DPAPI 凭据缓存。不会改变主密码、密钥文件或加密参数，也不能保护已被控制的系统。</p>
+          </section>
           <MasterPasswordHintSettings @dirty="hintDirty = $event" />
           <section>
             <div class="flex items-start justify-between gap-4">
@@ -483,7 +488,7 @@ const clipboardOptions = [
               </button>
             </div>
             <p class="mt-2 text-xs text-[#8b2332]">
-              请备份密钥文件，丢失后将无法解锁。
+              请独立备份密钥文件，与密码库分开保管；不要一起上传网盘。丢失后将无法解锁。
             </p>
           </section>
 
@@ -498,11 +503,12 @@ const clipboardOptions = [
               <input
                 v-model="settings.quickUnlock"
                 type="checkbox"
+                :disabled="settings.highSecurityMode"
                 class="mt-0.5 h-4 w-4"
               />
               <span>
                 启用指纹 / 人脸 / PIN 解锁
-                <span class="block text-xs text-stone-400">凭据仅在本机加密缓存，退出后清除。</span>
+                <span class="block text-xs leading-5 text-stone-400">可选便利功能：将主密码及所需密钥文件用当前 Windows 账户的 DPAPI 加密缓存，应用内经 Hello 验证读取。不是硬件密钥绑定，不能抵抗同账户恶意程序；正常退出会清理，异常退出不保证。</span>
               </span>
             </label>
             <button
@@ -552,6 +558,7 @@ const clipboardOptions = [
               <input
                 v-model="settings.autoHelloUnlock"
                 type="checkbox"
+                :disabled="settings.highSecurityMode || !settings.quickUnlock"
                 class="h-4 w-4"
               />
               启动时自动用 Windows Hello 解锁上次的库

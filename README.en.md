@@ -141,6 +141,16 @@ Built-in sync uploads the vault only—not the backup directory, key files, Hell
 
 KDBX encryption, Windows Hello and DPAPI-protected local credentials are safeguards, not absolute security guarantees. They cannot protect a system already controlled by malware.
 
+### Encryption strength and high-security mode
+
+New vaults default to **KDBX 4 / AES-256 / Argon2id (64 MiB, 3 iterations, parallelism 1)**. Opening or normally saving an existing vault does not automatically change its parameters.
+
+In **Settings → Security → Vault encryption strength**, inspect the actual parameters, choose a 64 / 128 / 256 MiB minimum-cost profile, measure local derivation time, then confirm the upgrade. Higher existing Argon2 memory, iterations and parallelism are preserved, as is the data cipher; KDBX 3 is upgraded to KDBX 4. New ciphertext must pass an authenticated decrypt/reopen check and the current version must be backed up before a version-checked atomic write. Timing measures one derivation only. Higher costs also slow down saving, unlocking and syncing; verify your other KeePass clients separately.
+
+Quick unlock is off for new installations; an explicit historical opt-in is preserved. **High-security mode** disables quick unlock and automatic Hello, and clears the local credential cache. Unlocking then requires the master password and any required key file. A cache-deletion failure is reported for retry, not treated as successful deletion. Quick unlock uses account-level DPAPI to cache the master password and optional key file, not hardware-bound encryption; normal exit clears it, but crashes may leave a cache behind.
+
+**An upgrade only strengthens the current vault, not old backups, cloud history or other copies.** Sync manually when needed and do not delete backups before confirming recovery. Use a strong, unique master password and back up key files separately from the database.
+
 - **Public master-password hints are plaintext metadata** and travel with the KDBX. Do not include passwords, keys or sensitive clues.
 - Changing a master password or key file does not re-encrypt old backups, cloud history or other copies. Old credentials may still open them.
 - Idle locking, clipboard clearing and screenshot hiding are auxiliary protections, not guarantees against all capture or disclosure.

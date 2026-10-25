@@ -62,12 +62,22 @@ try {
     assert.equal(settings.autoLockMinutes, 10);
     assert.equal(settings.clipboardSeconds, 30);
     assert.deepEqual([...settings.vaults], []);
+    assert.equal(settings.quickUnlock, false, "new installs must opt in to cached credentials");
+    assert.equal(settings.highSecurityMode, false);
   });
 
   await test("falls back to defaults on malformed settings", async () => {
     const { settings } = await fixture({ [currentKey]: "{invalid" });
     assert.equal(settings.autoLockMinutes, 10);
     assert.equal(settings.genLength, 20);
+  });
+  await test("explicit quick-unlock opt-in is preserved unless high-security mode is on", async () => {
+    const normal = await fixture({ [currentKey]: JSON.stringify({ quickUnlock: true }) });
+    assert.equal(normal.settings.quickUnlock, true);
+    const secure = await fixture({ [currentKey]: JSON.stringify({ highSecurityMode: true, quickUnlock: true, autoHelloUnlock: true }) });
+    assert.equal(secure.settings.highSecurityMode, true);
+    assert.equal(secure.settings.quickUnlock, false);
+    assert.equal(secure.settings.autoHelloUnlock, false);
   });
 } finally {
   if (originalStorage === undefined) delete globalThis.localStorage;

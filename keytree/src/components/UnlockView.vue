@@ -12,6 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useVault } from "../composables/useVault";
 import { settings, type VaultMeta } from "../lib/settings";
+import { credentialCachingAllowed } from "../lib/quick-unlock";
 import logoUrl from "../../assets/logo-256.png";
 import PublicPasswordHint from "./PublicPasswordHint.vue";
 
@@ -60,13 +61,12 @@ const tabs = computed(() => {
 /** 探测快速解锁是否可用（Hello 设备 + 本机密钥副本都在） */
 async function refreshHello(): Promise<void> {
   helloReady.value = false;
-  if ((mode.value !== "open" && mode.value !== "recent") || !path.value) return;
+  if (!credentialCachingAllowed() || (mode.value !== "open" && mode.value !== "recent") || !path.value) return;
   try {
     const hello = await invoke<string>("hello_status");
     if (hello !== "available") return;
-    helloReady.value = await invoke<boolean>("quick_unlock_exists", {
-      vaultPath: path.value,
-    });
+    const ready = await invoke<boolean>("quick_unlock_exists", { vaultPath: path.value });
+    helloReady.value = credentialCachingAllowed() && ready;
   } catch {
     // 非 Windows / 命令失败：保持灰按钮即可
   }
@@ -75,6 +75,7 @@ async function refreshHello(): Promise<void> {
 /** 批量探测每张卡片有没有 Hello 副本（只查文件，不解密，快） */
 async function refreshCardBadges(): Promise<void> {
   const map: Record<string, boolean> = {};
+  if (!credentialCachingAllowed()) { helloMap.value = map; return; }
   try {
     if ((await invoke<string>("hello_status")) !== "available") {
       helloMap.value = map;
@@ -95,12 +96,12 @@ async function refreshCardBadges(): Promise<void> {
       }
     })
   );
-  helloMap.value = map;
+  helloMap.value = credentialCachingAllowed() ? map : {};
 }
 
 /** 原生命令内部完成 Hello 门禁和凭据读取；取消后主密码入口始终可用。 */
 async function helloSubmit(_silent = false): Promise<void> {
-  if (!helloReady.value || busy.value) return;
+  if (!credentialCachingAllowed() || !helloReady.value || busy.value) return;
   localError.value = "";
   clearError();
   await helloUnlock(path.value);
@@ -243,7 +244,7 @@ onMounted(async () => {
   // spec §6.1：启动先试 Hello，失败再回落到主密码。只在本进程第一次挂载时做。
   if (autoHelloAttempted) return;
   autoHelloAttempted = true;
-  if (!settings.autoHelloUnlock) return;
+  if (!credentialCachingAllowed() || !settings.autoHelloUnlock) return;
   if (mode.value === "create" || !path.value) return;
   // 让窗口先画出来，系统验证框不会盖在空白窗口上
   await new Promise((resolve) => window.setTimeout(resolve, 600));
