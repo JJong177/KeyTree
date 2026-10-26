@@ -11,7 +11,7 @@ import {
 import { dateInputValue, hostOf } from "../lib/format";
 import { DEFAULT_AUTO_TYPE, parseSequence } from "../lib/autotype";
 import { cacheQuickUnlock, clearQuickUnlockCache, credentialCachingAllowed } from "../lib/quick-unlock";
-import { settings, upsertVault } from "../lib/settings";
+import { settings, upsertVault, getSyncOnLock } from "../lib/settings";
 import { fetchFavicon, bytesToDataUrl } from "../lib/favicon";
 import { buildChromeCsv } from "../lib/csv";
 import { toast } from "../lib/toast";
@@ -26,6 +26,7 @@ import { readMasterHint, writeMasterHint, publicDataSnapshot, type MasterHintRes
 import { webdavErrorCode, webdavErrorMessage, webdavIsConflict, type WebdavState, type WebdavPrepared, type WebdavCommitted, type WebdavConfig } from "../lib/webdav";
 
 import { summarizeSnapshot, snapshotErrorMessage, type SnapshotPreview, type SnapshotInfo, type SnapshotList } from "../lib/snapshots";
+import { ciphertextFingerprint, syncLockedVault } from "../lib/lock-sync";
 
 import { historyToken, resolveHistory, historyNote, writeHistoryNote, copySnapshotMetadata, mergeWithHistoryNotes } from "../lib/history";
 
@@ -485,6 +486,7 @@ function rebuild(): void {
 }
 
 async function writeBytes(path: string, buffer: ArrayBuffer, expectedStat: VaultStat | null = null): Promise<void> {
+  const fingerprint = getSyncOnLock(path) ? await ciphertextFingerprint(buffer).catch(() => null) : null;
   const written = await invoke<VaultStat | null>("write_vault", {
     path,
     bytes: Array.from(new Uint8Array(buffer)),
@@ -493,6 +495,7 @@ async function writeBytes(path: string, buffer: ArrayBuffer, expectedStat: Vault
   // 更新已知 stat：这样 watcher 收到自己写入的事件时能认出来并忽略
   if (path === vaultPath.value) {
     knownStat.value = written ?? await statOf(path);
+    savedCiphertextFingerprint = fingerprint;
   }
 }
 
@@ -642,6 +645,8 @@ const webdavState = ref<WebdavState>({ phase: "unchecked", message: "尚未检�
 let webdavGeneration = 0;
 let webdavInFlight = 0;
 let webdavUploadedRevision = -1;
+let savedCiphertextFingerprint: string | null = null;
+let lockSyncBaselineFingerprint: string | null = null;
 function resetWebdavSyncStatus(): void {
   webdavState.value = { phase: "unchecked", message: "尚未检查远端；本地保存不代表已同步。", lastSyncedAt: null };
   webdavUploadedRevision = -1;
@@ -658,6 +663,8 @@ function invalidateWebdavSync(path = vaultPath.value): void {
 watch([db, vaultPath], (_value, previous) => {
   invalidateWebdavSync(previous?.[1] || "");
   resetWebdavSyncStatus();
+  savedCiphertextFingerprint = null;
+  lockSyncBaselineFingerprint = null;
 }, { flush: "sync" });
 watch(changeRevision, revision => {
   if (webdavState.value.phase === "synced" && revision !== webdavUploadedRevision) {
@@ -712,10 +719,11 @@ async function syncWebdav(allowCreate = false): Promise<boolean> {
     phase("uploading", "正在条件上传；远端变化时不会覆盖…");
     const result = await invoke<WebdavCommitted>("webdav_commit_sync", { vaultPath: path, token: remoteFile.token, expectedStat });
     check(); committed = true;
+    if (revision === changeRevision.value) lockSyncBaselineFingerprint = savedCiphertextFingerprint;
     const actualStat = await statOf(path); check();
     webdavUploadedRevision = revision;
     const pending = revision !== changeRevision.value || hasUnsavedChanges.value || !sameStat(actualStat, result.uploadedStat);
-    webdavState.value = { phase: pending ? "pending" : "synced", message: pending ? "本次上传已确认，仍有新的本地修改待同步。" : "本次同步完成；远端后续变化需再次手动检查。", lastSyncedAt: result.syncedAt };
+    webdavState.value = { phase: pending ? "pending" : "synced", message: pending ? "本次上传已确认，仍有新的本地修改待同步。" : "本次同步完成。", lastSyncedAt: result.syncedAt };
     if (result.metadataSaved === false) webdavState.value.message += " 上传已确认，但本机同步时间未能持久保存。";
     return true;
   } catch (e) {
@@ -1068,6 +1076,8 @@ async function openVault(
       note = "已忽略主密码首尾的空白字符";
     }
     if (!active()) return false;
+    const openedFingerprint = await ciphertextFingerprint(Uint8Array.from(bytes).buffer);
+    if (!active()) return false;
 
     const finalReadStat = await statOf(path);
     if (!active()) return false;
@@ -1077,6 +1087,8 @@ async function openVault(
     knownPublicData = publicDataSnapshot(k, loaded.header);
     db.value = loaded;
     vaultPath.value = path;
+    savedCiphertextFingerprint = openedFingerprint;
+    lockSyncBaselineFingerprint = openedFingerprint;
     keyFileBytes.value = keyFile?.slice() ?? null;
     selectedGroupUuid.value = "all";
     query.value = "";
@@ -1138,6 +1150,7 @@ async function createVault(
     if (!unlockActive(run)) return false;
     status.value = "写入磁盘…";
     await writeBytes(path, saved);
+    const createdFingerprint = await ciphertextFingerprint(saved);
     if (!unlockActive(run)) return false;
     const createdStat = await statOf(path);
     if (!unlockActive(run)) return false;
@@ -1147,6 +1160,8 @@ async function createVault(
     knownPublicData = publicDataSnapshot(k, created.header);
     db.value = created;
     vaultPath.value = path;
+    savedCiphertextFingerprint = createdFingerprint;
+    lockSyncBaselineFingerprint = createdFingerprint;
     keyFileBytes.value = keyFile?.slice() ?? null;
     selectedGroupUuid.value = "all";
     query.value = "";
@@ -1812,13 +1827,13 @@ async function renameGroup(uuid: string, name: string): Promise<void> {
   }
 }
 
-async function deleteGroup(uuid: string): Promise<void> {
+async function deleteGroup(uuid: string): Promise<boolean> {
   const current = db.value;
   const group = groupRefs.get(uuid);
-  if (!current || !group) return;
+  if (!current || !group || busy.value) return false;
   if (group.uuid.id === current.getDefaultGroup().uuid.id) {
     error.value = "根分组不能删除";
-    return;
+    return false;
   }
   error.value = "";
   const toTrash = recycleBinEnabled.value;
@@ -1828,10 +1843,50 @@ async function deleteGroup(uuid: string): Promise<void> {
     if (!groups.value.some((g) => g.uuid === selectedGroupUuid.value)) {
       selectedGroupUuid.value = "all";
     }
-    await saveVault();
-    status.value = toTrash ? "分组已移到回收站" : "分组已删除";
+    const saved = await saveVault();
+    if (saved) status.value = toTrash ? "分组已移到回收站" : "分组已删除";
+    return saved;
   } catch (e) {
     error.value = `删除分组失败：${msg(e)}`;
+    return false;
+  }
+}
+
+/** 移动分组及其完整子树；失败的写盘保留为未保存修改，由现有保存管线重试。 */
+async function moveGroup(
+  uuid: string,
+  targetUuid = "",
+  position: "inside" | "before" | "after" = "inside"
+): Promise<boolean> {
+  const current = db.value;
+  const source = groupRefs.get(uuid);
+  if (!current || busy.value || !source) return false;
+  error.value = "";
+  try {
+    if (!source.parentGroup || groupIsInTrash(source)) throw new Error("不能移动库根分组或回收站分组");
+    if (!["inside", "before", "after"].includes(position)) throw new Error("无效的移动位置");
+    const target = targetUuid ? groupRefs.get(targetUuid) : current.getDefaultGroup();
+    if (!target || groupIsInTrash(target)) throw new Error("目标分组不存在或位于回收站");
+    if (target === source) throw new Error("不能将分组移动到自身");
+    const parent = position === "inside" ? target : target.parentGroup;
+    if (!parent) throw new Error("不能在库根分组之前或之后插入分组");
+    for (let ancestor: KdbxGroup | undefined = parent; ancestor; ancestor = ancestor.parentGroup) {
+      if (ancestor === source) throw new Error("不能将分组移动到自己的子分组中");
+    }
+    const siblings = parent.groups.filter((group) => group !== source);
+    const targetIndex = siblings.indexOf(target);
+    const index = position === "inside" ? siblings.length : targetIndex + (position === "after" ? 1 : 0);
+    if (source.parentGroup === parent && parent.groups.indexOf(source) === index) {
+      return hasUnsavedChanges.value ? await saveVault() : true;
+    }
+    current.move(source, parent, index);
+    rebuild();
+    const saved = await saveVault();
+    if (saved) status.value = "分组已移动";
+    return saved;
+  } catch (e) {
+    error.value = `移动分组失败：${msg(e)}`;
+    return false;
   }
 }
 
@@ -2032,6 +2087,11 @@ async function lock(options: { force?: boolean } = {}): Promise<boolean> {
       return false;
     }
     const lastSaveError = error.value;
+    const lockSyncPath = vaultPath.value;
+    const lockSyncStat = knownStat.value;
+    const lockSyncFingerprint = savedCiphertextFingerprint;
+    const lockSyncBaseline = lockSyncBaselineFingerprint;
+    const shouldSyncOnLock = !!current && flushed && getSyncOnLock(lockSyncPath);
     // 只有真正执行锁定才停 watcher，取消锁定时保留外部变更监听。
     void invoke("watch_vault", { path: null }).catch(() => {});
     cancelScheduledSave();
@@ -2059,6 +2119,19 @@ async function lock(options: { force?: boolean } = {}): Promise<boolean> {
     status.value = "";
     if (!flushed) {
       error.value = `为保护密码库已强制锁定，但最近的修改未能保存${lastSaveError ? `：${lastSaveError}` : ""}`;
+    }
+    if (shouldSyncOnLock && lockSyncStat?.mtimeNs) {
+      const generation = unlockGeneration;
+      const active = () => db.value === null && unlockGeneration === generation && getSyncOnLock(lockSyncPath);
+      void syncLockedVault(lockSyncPath, { ...lockSyncStat, mtimeNs: lockSyncStat.mtimeNs }, lockSyncFingerprint, lockSyncBaseline, active)
+        .then(result => { if (active() && result === "synced") toast("已锁定，同步完成"); })
+        .catch(reason => {
+          if (!active() || reason === "WD_CANCELLED") return;
+          error.value = reason === "WD_REMOTE_CHANGED"
+            ? "已锁定；远端有变化，请解锁后手动同步。"
+            : `已锁定，自动同步未完成：${webdavErrorMessage(reason)}`;
+          toast(error.value, 6000);
+        });
     }
     return true;
   } finally { clipboardLockRequests.value--; }
@@ -2220,6 +2293,7 @@ export function useVault() {
     purgeEntry,
     emptyTrash,
     addGroup,
+    moveGroup,
     renameGroup,
     deleteGroup,
     draftOf,

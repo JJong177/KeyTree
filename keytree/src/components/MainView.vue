@@ -12,7 +12,7 @@ import SettingsModal from "./SettingsModal.vue";
 import QuickPanel from "./QuickPanel.vue";
 import SyncQuickBar from "./SyncQuickBar.vue";
 import ClipboardRecognition from "./ClipboardRecognition.vue";
-import { createClipboardCapture, type ClipboardRecognition as Recognition, type ClipboardRecord, type ClipboardSnapshot } from "../lib/clipboard-capture";
+import { createClipboardCapture, resolveClipboardRecord, type ClipboardChoices, type ClipboardRecognition as Recognition, type ClipboardRecord, type ClipboardSnapshot } from "../lib/clipboard-capture";
 
 const settingsOpen = ref(false);
 const settingsInitialTab = ref<"security" | "sync">("security");
@@ -179,13 +179,15 @@ function clearClipboardRecognition(): void {
   clipboardCapture.invalidate();
   clipboardRecognition.value = null;
 }
-function acceptClipboardRecord(index: number): void {
+function acceptClipboardRecord(index: number, choices: ClipboardChoices = {}): void {
   const record = clipboardRecognition.value?.records[index];
   if (!record || !settings.clipboardRecognition || !unlocked.value || clipboardCaptureBlocked.value || busy.value || drawer.value.open
     || settingsOpen.value || panelOpen.value || document.hidden || !document.hasFocus()) return;
+  const resolved = resolveClipboardRecord(record, choices);
+  if (!resolved) return;
   clearClipboardRecognition();
   openCreateDrawer();
-  clipboardDraft.value = { title: record.title, username: record.username, password: record.password, url: record.url, notes: record.notes };
+  clipboardDraft.value = resolved;
 }
 function onClipboardFocus(): void { void clipboardCapture.focus(); }
 function onClipboardVisibility(): void { if (document.hidden) clearClipboardRecognition(); }

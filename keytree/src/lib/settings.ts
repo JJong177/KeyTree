@@ -17,6 +17,8 @@ export interface AppSettings {
   lastVaultPath: string;
   /** 最近使用的库（多库支持，方案 A：一次解锁一个） */
   vaults: VaultMeta[];
+  /** 每个密码库的锁定同步开关，需单独启用。 */
+  webdavSyncOnLock: Record<string, boolean>;
   /** 开机自启（走 tauri-plugin-autostart，注册当前用户登录项） */
   launchAtLogin: boolean;
   /** 启动时自动尝试 Windows Hello 解锁上次的库（省一次点按） */
@@ -35,6 +37,22 @@ export interface VaultMeta {
   lastOpenedAt: number;
 }
 
+const syncOnLockKey = (path: string) => path.replace(/\//g, "\\").toLowerCase();
+function loadSyncOnLock(value: unknown): Record<string, boolean> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter(([path]) => !!path)
+    .map(([path, enabled]) => [syncOnLockKey(path), enabled === true]));
+}
+export function getSyncOnLock(path: string): boolean {
+  const key = syncOnLockKey(path);
+  return Object.prototype.hasOwnProperty.call(settings.webdavSyncOnLock, key)
+    && settings.webdavSyncOnLock[key] === true;
+}
+export function setSyncOnLock(path: string, enabled: boolean): void {
+  if (!path) return;
+  settings.webdavSyncOnLock = { ...settings.webdavSyncOnLock, [syncOnLockKey(path)]: enabled === true };
+}
+
 const MAX_VAULTS = 10;
 
 /** 登记一个最近使用的库（去重、置顶、限量） */
@@ -49,6 +67,18 @@ export function upsertVault(path: string): void {
     { path, name, lastOpenedAt: Date.now() },
     ...rest,
   ].slice(0, MAX_VAULTS);
+}
+
+/** 仅移除最近访问记录，不操作密码库文件或快捷解锁凭据。 */
+export function removeRecentVault(path: string): void {
+  if (!path) return;
+  const normalized = path.replace(/\//g, "\\");
+  settings.vaults = settings.vaults.filter(
+    (vault) => vault.path.replace(/\//g, "\\") !== normalized
+  );
+  if (settings.lastVaultPath.replace(/\//g, "\\") === normalized) {
+    settings.lastVaultPath = settings.vaults[0]?.path ?? "";
+  }
 }
 
 const STORAGE_KEY = "keytree.settings.v1";
@@ -70,6 +100,7 @@ const defaults: AppSettings = {
   screenshotProtection: true,
   lastVaultPath: "",
   vaults: [],
+  webdavSyncOnLock: {},
   launchAtLogin: false,
   autoHelloUnlock: true,
   genMode: "chars",
@@ -120,6 +151,7 @@ function load(): AppSettings {
               lastOpenedAt: Number(v.lastOpenedAt) || 0,
             }))
         : [],
+      webdavSyncOnLock: loadSyncOnLock(parsed.webdavSyncOnLock),
       launchAtLogin: parsed.launchAtLogin === true,
       autoHelloUnlock: parsed.highSecurityMode !== true && parsed.autoHelloUnlock !== false,
       genMode: parsed.genMode === "phrase" ? "phrase" : "chars",

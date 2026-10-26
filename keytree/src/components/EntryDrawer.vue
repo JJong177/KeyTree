@@ -7,6 +7,7 @@ import { dateInputValue, generatePassphrase, generatePassword, passphraseStrengt
 import { settings } from "../lib/settings";
 import { parseTotpInput } from "../lib/totp";
 import { validateCustomFields, validateSequence } from "../lib/entry-fields";
+import AppSelect from "./AppSelect.vue";
 
 const props = defineProps<{ clipboardDraft?: Pick<EntryDraft, "title" | "username" | "password" | "url" | "notes"> | null }>();
 
@@ -21,6 +22,7 @@ const {
   busy,
   error,
 } = useVault();
+const groupOptions = computed(() => groups.value.map(group => ({ value: group.uuid, label: group.name, depth: group.depth })));
 
 const form = reactive<EntryDraft>({
   title: "",
@@ -361,16 +363,8 @@ onMounted(() => {
 
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div class="min-w-0">
-            <label class="mb-1 block text-sm font-medium text-stone-700">分组</label>
-            <select
-              v-model="form.groupUuid"
-              aria-label="分组"
-              class="w-full rounded-full border border-stone-200 bg-white px-5 py-3 text-stone-800 transition-all duration-300 focus:border-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-200"
-            >
-              <option v-for="g in groups" :key="g.uuid" :value="g.uuid">
-                {{ "　".repeat(g.depth) }}{{ g.name }}
-              </option>
-            </select>
+            <label for="entry-group" class="mb-1 block text-sm font-medium text-stone-700">分组</label>
+            <AppSelect id="entry-group" v-model="form.groupUuid" :options="groupOptions" aria-label="分组" :disabled="submitting || busy || confirmDiscard" size="large" class="w-full" />
           </div>
           <div class="min-w-0">
             <label class="mb-1 block text-sm font-medium text-stone-700">
@@ -402,22 +396,20 @@ onMounted(() => {
           </summary>
           <div class="mt-3 space-y-3">
             <div>
-              <label class="mb-1 block text-xs text-stone-500" for="autotype-sequence">自动输入序列</label>
+              <label class="mb-1 block text-xs text-stone-500" for="autotype-sequence" title="支持 {USERNAME}、{PASSWORD}、{TAB}、{ENTER}、{DELAY n}；延迟不超过 5000 毫秒">自动输入序列</label>
               <input id="autotype-sequence" v-model="form.autoTypeSequence" class="w-full rounded-full border border-stone-200 bg-white px-4 py-2 font-mono text-xs" placeholder="{USERNAME}{TAB}{PASSWORD}{ENTER}" />
-              <p class="mt-1 text-xs text-stone-400">支持 {USERNAME}、{PASSWORD}、{TAB}、{ENTER}、{DELAY n}；n ≤ 5000 毫秒。</p>
             </div>
             <div class="rounded-[1rem] border border-stone-200 bg-white p-3">
               <div class="mb-2 flex items-center justify-between"><span class="text-xs text-stone-600">自定义字段</span><button class="rounded-full border border-stone-300 px-3 py-1 text-xs" @click="(form.customFields ??= []).push({ name: '', value: '', protected: true })">＋ 字段</button></div>
               <div v-for="(field, index) in form.customFields" :key="index" class="mb-3 space-y-2 border-b border-stone-100 pb-3 last:border-0">
                 <div class="flex gap-2"><input v-model="field.name" :aria-label="`字段 ${index + 1} 名称`" class="min-w-0 flex-1 rounded-full border border-stone-200 px-3 py-2 text-xs" placeholder="例如：恢复码" /><button class="text-xs text-[#8b2332]" @click="removeField(index)">移除</button></div>
                 <input v-model="field.value" :type="field.protected ? 'password' : 'text'" :aria-label="`字段 ${index + 1} 内容`" class="w-full rounded-full border border-stone-200 px-3 py-2 text-xs" placeholder="字段内容" />
-                <label class="flex items-center gap-2 text-xs text-stone-500"><input v-model="field.protected" type="checkbox" />保护内容（在库中使用 ProtectedValue）</label>
+                <label class="flex items-center gap-2 text-xs text-stone-500"><input v-model="field.protected" type="checkbox" />隐藏字段内容</label>
               </div>
-              <p class="text-[11px] text-stone-400">只移除你明确删除的字段；其他客户端的未知字段会保留。</p>
             </div>
             <div>
               <label class="mb-1 block text-xs text-stone-500">
-                TOTP 密钥（粘 otpauth:// 链接，或直接填 Base32 密钥）
+                TOTP 密钥
               </label>
               <input
                 v-model="form.totp"
@@ -428,7 +420,7 @@ onMounted(() => {
                 {{ totpHint }}
               </p>
               <p v-else class="mt-1 text-xs text-stone-400">
-                密钥随条目一起加密保存，详情页会实时显示动态码
+                支持 otpauth:// 链接或 Base32 密钥。
               </p>
             </div>
 

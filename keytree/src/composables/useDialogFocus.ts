@@ -15,6 +15,8 @@ export function useDialogFocus(root: Ref<HTMLElement | null>, onEscape: () => vo
   function focusFirst() { (elements()[0] ?? scope())?.focus(); }
   function keydown(event: KeyboardEvent) {
     if (!topmost() || event.isComposing) return;
+    // A nested select handles Escape/Tab itself; its portal stays inside this scope.
+    if ((event.key === "Escape" || event.key === "Tab") && scope()?.querySelector?.('[data-app-select-content][data-state="open"]')) return;
     if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); onEscape(); }
     if (event.key !== "Tab") return;
     const items = elements();

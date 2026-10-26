@@ -1,6 +1,6 @@
 [package]
 name = "keytree"
-version = "0.1.0"
+version = "0.2.0"
 description = "KeyTree - lightweight KDBX password manager (Windows-first)"
 edition = "2021"
 

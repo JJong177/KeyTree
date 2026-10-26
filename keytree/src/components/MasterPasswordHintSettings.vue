@@ -41,7 +41,7 @@ onBeforeUnmount(() => { disposed = true; generation++; draft.value = ""; message
 <template>
   <section class="space-y-3 border-b border-stone-200 pb-5">
     <h4 class="font-serif text-sm font-semibold text-stone-800">主密码提示</h4>
-    <p class="rounded-[1rem] border border-[#d4a373]/50 bg-[#d4a373]/10 p-3 text-xs leading-relaxed text-[#5c4033]">提示为公开明文，持有库文件的人都能看到。勿填写密码或敏感信息；提示不能找回密码。</p>
+    <p class="text-xs leading-relaxed text-[#805a33]">提示为公开明文，请勿填写密码；不能用于找回密码。</p>
     <p v-if="unsupported" class="text-xs text-[#8b2332]">当前 KDBX 版本不支持公开提示。</p>
     <template v-else>
       <label class="block text-xs text-stone-500" for="master-password-hint">记忆线索（可留空）</label>
@@ -50,6 +50,9 @@ onBeforeUnmount(() => { disposed = true; generation++; draft.value = ""; message
       <div class="flex flex-wrap gap-2"><button class="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs text-stone-700 disabled:opacity-50" :disabled="!canSave" @click="submit(false)">{{ saving ? '保存中…' : '保存提示' }}</button><button class="rounded-full border border-[#8b2332]/30 px-4 py-2 text-xs text-[#8b2332] disabled:opacity-50" :disabled="saving || busy || !unlocked" @click="submit(true)">删除提示</button></div>
     </template>
     <p v-if="message" role="status" class="text-xs leading-relaxed text-[#5c4033]">{{ message }}</p>
-    <p class="text-[11px] leading-relaxed text-stone-400">改主密码后请检查提示；旧备份可能保留旧内容。</p>
+    <details class="text-xs text-stone-500">
+      <summary class="cursor-pointer">提示须知</summary>
+      <p class="mt-2 leading-relaxed">持有库文件的人均可查看。修改主密码后请检查提示，旧备份可能保留旧内容。</p>
+    </details>
   </section>
 </template>

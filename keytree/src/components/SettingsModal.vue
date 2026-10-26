@@ -16,6 +16,7 @@ import WebdavSettings from "./WebdavSettings.vue";
 import BackupSnapshots from "./BackupSnapshots.vue";
 import EncryptionSettings from "./EncryptionSettings.vue";
 import { clearQuickUnlockCache } from "../lib/quick-unlock";
+import AppSelect from "./AppSelect.vue";
 
 const props = withDefaults(defineProps<{ initialTab?: "security" | "convenience" | "data" | "health" | "audit" | "sync" | "about" }>(), { initialTab: "security" });
 const emit = defineEmits<{ close: [] }>();
@@ -382,18 +383,15 @@ const clipboardOptions = [
           <section>
             <label class="flex items-start gap-2 text-sm font-medium text-stone-700">
               <input type="checkbox" :checked="settings.highSecurityMode" class="mt-0.5 h-4 w-4" @change="toggleHighSecurity" />
-              高安全模式（不缓存解锁凭据）
+              高安全模式
             </label>
-            <p class="mt-2 text-xs leading-5 text-stone-500">关闭 Windows Hello 快速解锁和自动尝试，清除本机 DPAPI 凭据缓存。不会改变主密码、密钥文件或加密参数，也不能保护已被控制的系统。</p>
+            <p class="mt-2 text-xs text-stone-500">关闭快速解锁，并清除本机解锁缓存。</p>
           </section>
           <MasterPasswordHintSettings @dirty="hintDirty = $event" />
           <section>
             <div class="flex items-start justify-between gap-4">
               <div class="min-w-0">
-                <h4 class="font-serif text-sm font-semibold text-stone-800">截图时隐藏窗口</h4>
-                <p class="mt-1 text-xs text-stone-500">
-                  隐藏主窗口和快速面板；远程桌面显示异常时可关闭。
-                </p>
+                <h4 class="font-serif text-sm font-semibold text-stone-800" title="远程桌面显示异常时可关闭">截图时隐藏窗口</h4>
               </div>
               <button
                 type="button"
@@ -453,7 +451,7 @@ const clipboardOptions = [
           </section>
 
           <section class="border-t border-stone-200 pt-5">
-            <h4 class="mb-2 font-serif text-sm font-semibold text-stone-800">密钥文件（第二因子）</h4>
+            <h4 class="mb-2 font-serif text-sm font-semibold text-stone-800">密钥文件</h4>
             <p class="mb-2 text-xs text-stone-500">
               当前状态：
               <span :class="hasKeyFile ? 'text-[#8b9d77]' : 'text-stone-500'">
@@ -466,13 +464,13 @@ const clipboardOptions = [
                 class="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-100"
                 @click="pickKeyFile"
               >
-                选择现有密钥文件
+                选择密钥文件
               </button>
               <button
                 class="rounded-full border border-stone-300 bg-[#d4a373] px-4 py-2 text-xs font-medium text-stone-800 transition-colors duration-300 hover:bg-[#d4a373]/80"
                 @click="generateKeyFile"
               >
-                生成新的 .keyx
+                生成密钥文件
               </button>
               <button
                 v-if="hasKeyFile"
@@ -488,7 +486,7 @@ const clipboardOptions = [
               </button>
             </div>
             <p class="mt-2 text-xs text-[#8b2332]">
-              请独立备份密钥文件，与密码库分开保管；不要一起上传网盘。丢失后将无法解锁。
+              请与密码库分开备份；密钥文件丢失将无法解锁。
             </p>
           </section>
 
@@ -508,9 +506,13 @@ const clipboardOptions = [
               />
               <span>
                 启用指纹 / 人脸 / PIN 解锁
-                <span class="block text-xs leading-5 text-stone-400">可选便利功能：将主密码及所需密钥文件用当前 Windows 账户的 DPAPI 加密缓存，应用内经 Hello 验证读取。不是硬件密钥绑定，不能抵抗同账户恶意程序；正常退出会清理，异常退出不保证。</span>
+                <span class="block text-xs leading-5 text-stone-400">在本机加密缓存解锁凭据。</span>
               </span>
             </label>
+            <details class="mt-2 text-xs text-stone-500">
+              <summary class="cursor-pointer">安全说明</summary>
+              <p class="mt-2 leading-5">凭据由当前 Windows 账户加密保存，经 Hello 验证后读取；不属于硬件密钥绑定，无法抵御同账户恶意程序。正常退出时清理缓存，异常退出不保证。</p>
+            </details>
             <button
               class="mt-3 rounded-full border px-4 py-2 text-xs transition-colors duration-300"
               :class="
@@ -541,84 +543,64 @@ const clipboardOptions = [
         <div v-if="tab === 'convenience'" class="space-y-5">
           <ShortcutSettings />
           <div class="border-b border-stone-200 pb-5">
-            <label class="mb-1 flex items-center gap-2 text-sm font-medium text-stone-700">
+            <label class="mb-1 flex items-center gap-2 text-sm font-medium text-stone-700" title="登录后后台运行，密码库保持锁定">
               <input
                 v-model="settings.launchAtLogin"
                 type="checkbox"
                 class="h-4 w-4"
               />
-              开机自动启动 KeyTree
+              开机启动
             </label>
-            <p class="mt-1 text-xs text-stone-400">
-              登录后后台运行，密码库保持锁定。
-            </p>
           </div>
           <div class="border-b border-stone-200 pb-5">
-            <label class="mb-1 flex items-center gap-2 text-sm font-medium text-stone-700">
+            <label class="mb-1 flex items-center gap-2 text-sm font-medium text-stone-700" title="需先启用快速解锁；手动锁定后不会自动弹出">
               <input
                 v-model="settings.autoHelloUnlock"
                 type="checkbox"
                 :disabled="settings.highSecurityMode || !settings.quickUnlock"
                 class="h-4 w-4"
               />
-              启动时自动用 Windows Hello 解锁上次的库
+              启动时用 Windows Hello 解锁
             </label>
-            <p class="mt-1 text-xs text-stone-400">
-              需先启用快速解锁；手动锁定后不会自动弹出。
-            </p>
           </div>
           <div class="border-b border-stone-200 pb-5">
             <label class="mb-1 flex items-center gap-2 text-sm font-medium text-stone-700">
               <input v-model="settings.clipboardRecognition" type="checkbox" class="h-4 w-4" :disabled="working || busy || webdavWorking || backupWorking" />
-              回到软件时识别剪贴板账号
+              识别剪贴板账号
             </label>
             <p class="mt-1 text-xs leading-5 text-stone-500">
-              仅在回到已解锁的主窗口时读取最后一次复制的文本、表格和可用来源，不后台监听、不上传、不记录原文。
-              识别后先询问，确认后仅填入新增页，仍需你核对并手动保存。正在编辑或打开设置时不读取。
+              回到软件时本机识别，确认后填入，不自动保存。
             </p>
+            <details class="mt-2 text-xs text-stone-500">
+              <summary class="cursor-pointer">隐私说明</summary>
+              <p class="mt-2 leading-5">仅在主窗口已解锁且未编辑时读取；不后台监听、不上传、不记录原文。打开设置时不读取。</p>
+            </details>
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-stone-700">空闲自动锁定</label>
-            <select
-              v-model.number="settings.autoLockMinutes"
-              class="w-full rounded-full border border-stone-200 bg-white px-5 py-2.5 text-sm text-stone-800 focus:border-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-200"
-            >
-              <option v-for="o in autoLockOptions" :key="o.value" :value="o.value">
-                {{ o.label }}
-              </option>
-            </select>
+            <label for="auto-lock-minutes" class="mb-1 block text-sm font-medium text-stone-700">空闲自动锁定</label>
+            <AppSelect id="auto-lock-minutes" v-model="settings.autoLockMinutes" :options="autoLockOptions" :disabled="working || busy || webdavWorking || backupWorking" class="w-full" />
           </div>
 
           <div>
-            <label class="mb-1 block text-sm font-medium text-stone-700">
+            <label for="clipboard-seconds" class="mb-1 block text-sm font-medium text-stone-700" title="仅清理 KeyTree 复制的内容，不影响后来复制的内容">
               复制后清空剪贴板
             </label>
-            <select
-              v-model.number="settings.clipboardSeconds"
-              class="w-full rounded-full border border-stone-200 bg-white px-5 py-2.5 text-sm text-stone-800 focus:border-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-200"
-            >
-              <option v-for="o in clipboardOptions" :key="o.value" :value="o.value">
-                {{ o.label }}
-              </option>
-            </select>
-            <p class="mt-1 text-xs text-stone-400">
-              仅清理 KeyTree 复制的内容，不影响后来复制的内容。
-            </p>
+            <AppSelect id="clipboard-seconds" v-model="settings.clipboardSeconds" :options="clipboardOptions" :disabled="working || busy || webdavWorking || backupWorking" class="w-full" />
           </div>
         </div>
 
         <!-- 数据 -->
         <div v-else-if="tab === 'data'" class="space-y-6">
           <section>
-            <h4 class="mb-2 font-serif text-sm font-semibold text-stone-800">滚动备份</h4>
+            <h4 class="mb-2 font-serif text-sm font-semibold text-stone-800">自动备份</h4>
             <p class="mb-2 text-xs text-stone-500">
-              上一版自动保存为 <code class="rounded bg-white px-1 py-0.5 text-[11px]">{{ backupName }}</code>，可在解锁页恢复。
+              上一版：<code class="rounded bg-white px-1 py-0.5 text-[11px]">{{ backupName }}</code>
             </p>
             <p v-if="backupInfo.exists" class="text-xs text-[#5c4033]">
               当前备份：{{ backupText }}
             </p>
             <p v-else class="text-xs text-stone-400">
-              暂无备份，下次保存已有库时生成。
+              暂无备份
             </p>
           </section>
 
@@ -658,14 +640,14 @@ const clipboardOptions = [
           <section class="border-t border-stone-200 pt-5">
             <h4 class="mb-2 font-serif text-sm font-semibold text-stone-800">导入</h4>
             <p class="mb-3 text-xs text-stone-500">
-              支持 Chrome、Edge、KeePassXC 的 CSV；预览确认后仅新增，不覆盖已有条目。
+              预览后导入，不覆盖已有条目。
             </p>
             <button
               class="rounded-full bg-stone-800 px-4 py-2 text-xs font-medium text-stone-50 transition-colors duration-300 hover:bg-stone-700 disabled:opacity-50"
               :disabled="importing"
               @click="doImportCsv"
             >
-              {{ importing ? "分析中…" : "选择 CSV，先预览" }}
+              {{ importing ? "分析中…" : "选择 CSV" }}
             </button>
           </section>
           <ImportPreview v-if="importPreview.length" />
@@ -697,7 +679,7 @@ const clipboardOptions = [
           </div>
           <div class="font-medium text-stone-800">KeyTree</div>
           <p class="border-t border-stone-200 pt-3 text-xs text-stone-400">
-            本地优先，仅手动 WebDAV 同步时上传库文件。
+            本地优先，可手动同步或启用锁定时同步。
           </p>
         </div>
         </fieldset>

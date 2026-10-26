@@ -52,13 +52,13 @@ onBeforeUnmount(() => { disposed = true; generation++; cancelBackupOperations();
 </script>
 <template>
   <section data-backup-snapshots class="space-y-3 border-t border-stone-200 pt-5">
-    <h4 class="font-serif text-sm font-semibold text-stone-800">多版本加密备份</h4>
-    <p class="text-xs leading-relaxed text-stone-500">覆盖保存前保留旧版，最多 {{ maxCount }} 份、合计 {{ Math.round(maxTotalBytes / 1024 / 1024) }} MiB。仅在本地库旁保存，不随内置 WebDAV 上传。</p>
+    <h4 class="font-serif text-sm font-semibold text-stone-800">备份版本</h4>
+    <p class="text-xs text-stone-500">本地加密备份，最多 {{ maxCount }} 份；不自动上传。</p>
     <div class="flex flex-wrap gap-2">
       <button :disabled="disabled" class="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs disabled:opacity-50" @click="refresh">刷新版本</button>
       <button :disabled="disabled" class="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs disabled:opacity-50" @click="create">{{ working ? '处理中…' : '立即备份' }}</button>
     </div>
-    <p v-if="loaded && !items.length" class="text-xs text-stone-400">暂无多版本备份，可先立即备份；现有 .bak 仍保留原有恢复入口。</p>
+    <p v-if="loaded && !items.length" class="text-xs text-stone-400">暂无备份版本</p>
     <ul v-if="items.length" class="max-h-52 space-y-1 overflow-y-auto rounded-xl border border-stone-200 bg-white p-2">
       <li v-for="item in items" :key="item.id" class="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-2 text-xs">
         <span class="min-w-0 text-stone-600">{{ timeOf(item.createdAt) }} <span class="text-stone-400">· {{ Math.max(1, Math.round(item.size / 1024)) }} KB</span></span>
@@ -69,11 +69,14 @@ onBeforeUnmount(() => { disposed = true; generation++; cancelBackupOperations();
       <p class="font-medium">已用当前凭据解密并验证同一库：{{ timeOf(snapshotPreview.item.createdAt) }}</p>
       <p>条目：当前 {{ snapshotPreview.summary.currentEntries }} → 副本 {{ snapshotPreview.summary.snapshotEntries }}；分组：{{ snapshotPreview.summary.currentGroups }} → {{ snapshotPreview.summary.snapshotGroups }}</p>
       <p>相对当前库：新增 {{ snapshotPreview.summary.added }}，移除 {{ snapshotPreview.summary.removed }}，内容或位置变化 {{ snapshotPreview.summary.changed }}。</p>
-      <p class="text-[11px] text-stone-500">摘要含回收站；不展示密码，不计历史、附件或库设置差异。原始加密副本完整保留这些数据。</p>
+      <p class="text-[11px] text-stone-500">摘要含回收站，不含历史、附件和设置差异。</p>
       <button :disabled="disabled" class="rounded-full bg-stone-800 px-4 py-2 text-xs text-white disabled:opacity-50" @click="recover">另存恢复副本（不覆盖）</button>
     </div>
     <p v-if="snapshotError" role="status" class="break-words text-xs leading-relaxed text-[#8b2332]">{{ snapshotError }}</p>
     <p v-if="message" role="status" class="break-words text-xs leading-relaxed text-[#5c4033]">{{ message }}</p>
-    <p class="text-[11px] leading-relaxed text-stone-400">恢复前先备份当前已保存版本，只能导出到新文件。旧备份可能需要旧主密码或密钥文件；改密码不会重新加密旧副本。备份不是安全擦除或异地容灾保证。</p>
+    <details class="text-xs text-stone-500">
+      <summary class="cursor-pointer">备份与恢复说明</summary>
+      <p class="mt-2 leading-relaxed">本地备份总计不超过 {{ Math.round(maxTotalBytes / 1024 / 1024) }} MiB。恢复前自动备份当前版本，并另存新文件，不覆盖原库。旧副本可能需要旧密码或密钥文件，改密不会更新旧副本；请另备异地副本。</p>
+    </details>
   </section>
 </template>

@@ -8,6 +8,12 @@ import EntryAvatar from "./EntryAvatar.vue";
 import EmptyState from "./EmptyState.vue";
 import MatchText from "./MatchText.vue";
 import MatchContext from "./MatchContext.vue";
+import AppSelect from "./AppSelect.vue";
+const sortOptions = [
+  { value: "recent", label: "最近修改" },
+  { value: "used", label: "最近使用" },
+  { value: "title", label: "按名称" },
+] as const;
 const {
   visibleEntries,
   selectedUuid,
@@ -90,7 +96,7 @@ function onEmptyTrash() {
       </button>
       <div v-else class="ml-auto flex shrink-0 items-center gap-1">
         <button class="rounded-full border border-stone-200 px-2 py-1 text-xs" :class="favoritesOnly ? 'bg-[#d4a373]/25 text-[#5c4033]' : 'bg-white text-stone-500'" :aria-pressed="favoritesOnly" @click="favoritesOnly = !favoritesOnly">★ 收藏</button>
-        <select v-model="sortMode" aria-label="条目排序" class="w-28 shrink-0 rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-600"><option value="recent">最近修改</option><option value="used">最近使用</option><option value="title">按名称</option></select>
+        <AppSelect v-model="sortMode" :options="sortOptions" aria-label="条目排序" size="compact" class="w-28 shrink-0" />
       </div>
     </div>
 

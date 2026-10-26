@@ -32,7 +32,7 @@ async function fixture(values) {
 try {
   await build({
     stdin: {
-      contents: "export { settings } from './src/lib/settings'; export { nextTick } from 'vue';",
+      contents: "export { settings, removeRecentVault, upsertVault, getSyncOnLock, setSyncOnLock } from './src/lib/settings'; export { nextTick } from 'vue';",
       resolveDir: project, loader: "ts",
     },
     outfile: output, bundle: true, platform: "node", format: "esm", logLevel: "silent",
@@ -90,6 +90,56 @@ try {
     settings.clipboardRecognition = false;
     await nextTick();
     assert.equal(JSON.parse(data.get(currentKey)).clipboardRecognition, false);
+  });
+  await test("removing a recent vault persists without disturbing other settings and can be reopened", async () => {
+    const a = { path: "C:/vaults/a.kdbx", name: "A", lastOpenedAt: 2 };
+    const b = { path: "C:/vaults/b.kdbx", name: "B", lastOpenedAt: 1 };
+    const f = await fixture({ [currentKey]: JSON.stringify({ vaults: [a, b], lastVaultPath: a.path, clipboardSeconds: 60 }) });
+    f.removeRecentVault("C:\\vaults\\a.kdbx");
+    await f.nextTick();
+    assert.deepEqual([...f.settings.vaults], [b]);
+    assert.equal(f.settings.lastVaultPath, b.path);
+    assert.equal(f.settings.clipboardSeconds, 60);
+    const stored = f.data.get(currentKey);
+    const reopened = await fixture({ [currentKey]: stored });
+    assert.deepEqual([...reopened.settings.vaults], [b]);
+    assert.equal(reopened.settings.lastVaultPath, b.path);
+    reopened.upsertVault(a.path);
+    assert.deepEqual(reopened.settings.vaults.map(v => v.path), [a.path, b.path]);
+  });
+  await test("removing another recent vault preserves default; removing last record clears it", async () => {
+    const a = { path: "C:/a.kdbx", name: "A", lastOpenedAt: 2 };
+    const b = { path: "C:/b.kdbx", name: "B", lastOpenedAt: 1 };
+    const f = await fixture({ [currentKey]: JSON.stringify({ vaults: [a, b], lastVaultPath: a.path }) });
+    f.removeRecentVault(b.path);
+    assert.equal(f.settings.lastVaultPath, a.path);
+    assert.deepEqual([...f.settings.vaults], [a]);
+    f.removeRecentVault(a.path);
+    await f.nextTick();
+    assert.deepEqual([...f.settings.vaults], []);
+    assert.equal(f.settings.lastVaultPath, "");
+    assert.equal(JSON.parse(f.data.get(currentKey)).lastVaultPath, "");
+  });
+  await test("lock sync defaults off, persists per vault and normalizes Windows paths", async () => {
+    const f = await fixture({});
+    assert.equal(f.getSyncOnLock("C:/a.kdbx"), false);
+    f.setSyncOnLock("C:/a.kdbx", true);
+    f.setSyncOnLock("C:/b.kdbx", false);
+    await f.nextTick();
+    assert.equal(f.getSyncOnLock("c:\\A.kdbx"), true);
+    const reopened = await fixture({ [currentKey]: f.data.get(currentKey) });
+    assert.equal(reopened.getSyncOnLock("C:/a.kdbx"), true);
+    assert.equal(reopened.getSyncOnLock("C:/b.kdbx"), false);
+    assert.equal(reopened.getSyncOnLock("C:/unknown.kdbx"), false);
+  });
+  await test("lock sync requires explicit opt-in and does not inherit removed timer settings", async () => {
+    for (const enabled of [undefined, false, "true", 1]) {
+      const f = await fixture({ [currentKey]: JSON.stringify({ webdavSyncOnLock: { "C:/a.kdbx": enabled }, webdavAutoSync: { "C:/a.kdbx": { enabled: true, intervalMinutes: 1 } } }) });
+      assert.equal(f.getSyncOnLock("C:/a.kdbx"), false);
+      assert.equal("webdavAutoSync" in f.settings, false);
+    }
+    const f = await fixture({ [currentKey]: JSON.stringify({ webdavSyncOnLock: [true] }) });
+    assert.equal(f.getSyncOnLock("C:/a.kdbx"), false);
   });
 } finally {
   if (originalStorage === undefined) delete globalThis.localStorage;

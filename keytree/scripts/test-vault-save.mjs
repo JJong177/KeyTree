@@ -35,7 +35,7 @@ try {
   await build({
     stdin: {
       contents: `export { useVault } from './src/composables/useVault';
-export { settings } from './src/lib/settings';
+export { settings, getSyncOnLock, setSyncOnLock } from './src/lib/settings';
 export { default as EntryDrawer } from './src/components/EntryDrawer.vue';
 export { default as MainView } from './src/components/MainView.vue';
 export { copyText } from './src/lib/clipboard';
@@ -57,11 +57,15 @@ export { default as MatchContext } from './src/components/MatchContext.vue';
 export { default as PublicPasswordHint } from './src/components/PublicPasswordHint.vue';
 export { default as MasterPasswordHintSettings } from './src/components/MasterPasswordHintSettings.vue';
 export { default as EncryptionSettings } from './src/components/EncryptionSettings.vue';
+export { default as AppSelect } from './src/components/AppSelect.vue';
+export { default as UnlockView } from './src/components/UnlockView.vue';
+export { default as GroupTree } from './src/components/GroupTree.vue';
 export * from './src/lib/quick-unlock';
 export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue';`,
       resolveDir: project, loader: "ts",
     },
     outfile: outFile, bundle: true, platform: "node", format: "esm", logLevel: "silent",
+    loader: { ".png": "dataurl" },
     plugins: [{
       name: "save-test-adapters",
       setup(b) {
@@ -270,6 +274,158 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
     for (let n = 0; n < 1000; n++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 10)); }
     assert.fail("Security operation did not reach expected phase");
   }
+  await scenario("recent removal preserves unselected input, clears selected secrets, and never deletes vaults or credentials", async f => {
+    const a = { path: "C:/recent-a.kdbx", name: "A", lastOpenedAt: 2 };
+    const b = { path: "C:/recent-b.kdbx", name: "B", lastOpenedAt: 1 };
+    f.settings.vaults = [a, b]; f.settings.lastVaultPath = a.path;
+    const page = f.mount(f.UnlockView);
+    page.password = "SYNTHETIC_INPUT";
+    const writes = f.state.writes.length;
+    const cacheEvents = [...f.state.cacheEvents];
+    page.removeRecent(b);
+    assert.equal(page.path, a.path);
+    assert.equal(page.password, "SYNTHETIC_INPUT");
+    assert.deepEqual(f.settings.vaults.map(v => v.path), [a.path]);
+    f.settings.vaults = [a, b];
+    page.keyFilePath = "SYNTHETIC_KEY"; page.keyFileBytes = new Uint8Array([1, 2]);
+    page.removeRecent(a);
+    assert.equal(page.path, b.path);
+    assert.equal(page.password, "");
+    assert.equal(page.keyFilePath, "");
+    assert.equal(page.keyFileBytes, null);
+    assert.equal(f.settings.lastVaultPath, b.path);
+    page.removeRecent(b);
+    assert.equal(page.mode, "open");
+    assert.equal(page.path, "");
+    assert.equal(f.settings.lastVaultPath, "");
+    assert.deepEqual([...f.settings.vaults], []);
+    await f.nextTick();
+    assert.equal(f.state.writes.length, writes);
+    assert.deepEqual(f.state.cacheEvents, cacheEvents);
+    assert.equal(f.vault.unlocked.value, true, "removing history does not close or delete a vault");
+  });
+  await scenario("recent removal is disabled during an in-flight unlock or save", async f => {
+    const a = { path: "C:/recent-a.kdbx", name: "A", lastOpenedAt: 1 };
+    f.settings.vaults = [a]; f.settings.lastVaultPath = a.path;
+    const page = f.mount(f.UnlockView);
+    f.vault.busy.value = true;
+    page.removeRecent(a);
+    assert.deepEqual(f.settings.vaults.map(v => v.path), [a.path]);
+    assert.equal(page.path, a.path);
+    f.vault.busy.value = false;
+  });
+
+  await scenario("group moves reorder siblings in both directions and preserve subtrees after reopen", async f => {
+    const db = f.state.db;
+    db.setKdf(kdbxweb.Consts.KdfId.Aes);
+    db.header.kdfParameters.set("R", kdbxweb.VarDictionary.ValueType.UInt64, kdbxweb.Int64.from(100));
+    for (const name of ["A", "B", "C"]) await f.vault.addGroup(name);
+    const find = name => f.vault.groups.value.find(g => g.name === name).uuid;
+    const a = find("A"), b = find("B"), c = find("C");
+    await f.vault.addGroup("Child", a);
+    const child = find("Child");
+    f.vault.selectGroup(child);
+    const root = db.getDefaultGroup();
+    const names = () => root.groups.filter(g => g.uuid.id !== db.meta.recycleBinUuid.id).map(g => g.name);
+    assert.equal(await f.vault.moveGroup(a, c, "after"), true);
+    assert.deepEqual(names(), ["B", "C", "A"]);
+    assert.equal(await f.vault.moveGroup(a, b, "before"), true);
+    assert.deepEqual(names(), ["A", "B", "C"]);
+    f.state.realSave = true;
+    assert.equal(await f.vault.moveGroup(a, b, "inside"), true);
+    assert.equal(db.getGroup(new kdbxweb.KdbxUuid(a)).parentGroup.uuid.id, b);
+    assert.equal(f.vault.selectedGroupUuid.value, child);
+    assert.equal(f.vault.groups.value.find(g => g.uuid === child).depth, 3);
+    const reopened = await kdbxweb.Kdbx.load(Uint8Array.from(f.state.vaultBytes).buffer, db.credentials);
+    assert.equal(reopened.getGroup(new kdbxweb.KdbxUuid(a)).parentGroup.uuid.id, b);
+    assert.equal(reopened.getGroup(new kdbxweb.KdbxUuid(child)).parentGroup.uuid.id, a);
+    assert.equal(await f.vault.moveGroup(a), true);
+    assert.equal(db.getGroup(new kdbxweb.KdbxUuid(a)).parentGroup, root);
+    assert.equal(f.vault.groups.value.find(g => g.uuid === child).depth, 2);
+  });
+
+  await scenario("group moves reject cycles, roots, trash and missing targets without writes", async f => {
+    await f.vault.addGroup("Parent");
+    const parent = f.vault.groups.value.find(g => g.name === "Parent").uuid;
+    await f.vault.addGroup("Child", parent);
+    const child = f.vault.groups.value.find(g => g.name === "Child").uuid;
+    const root = f.state.db.getDefaultGroup().uuid.id;
+    const trash = f.state.db.meta.recycleBinUuid.id;
+    const writes = f.state.writes.length;
+    for (const [source, target, position] of [
+      [parent, parent, "inside"], [parent, child, "inside"], [parent, child, "before"],
+      [root, parent, "inside"], [trash, parent, "inside"], [parent, trash, "inside"],
+      [parent, "missing", "inside"], [parent, root, "after"],
+    ]) assert.equal(await f.vault.moveGroup(source, target, position), false);
+    assert.equal(f.state.writes.length, writes);
+    assert.equal(f.vault.groups.value.find(g => g.uuid === child).depth, 2);
+    await f.vault.lock();
+    assert.equal(await f.vault.moveGroup(parent, child), false);
+  });
+
+  await scenario("hidden root keeps its entries accessible and group click toggles real entry filtering", async f => {
+    const root = f.state.db.getDefaultGroup().uuid.id;
+    for (const name of ["A", "B"]) await f.vault.addGroup(name);
+    const a = f.vault.groups.value.find(g => g.name === "A").uuid;
+    const b = f.vault.groups.value.find(g => g.name === "B").uuid;
+    await f.vault.addGroup("Child", a);
+    const child = f.vault.groups.value.find(g => g.name === "Child").uuid;
+    for (const [title, groupUuid] of [["Root entry", root], ["A entry", a], ["B entry", b], ["Child entry", child]]) {
+      await f.vault.addEntry({ ...f.draft, title, groupUuid });
+    }
+    const page = f.mount(f.GroupTree);
+    const titles = () => f.vault.visibleEntries.value.map(e => e.title).sort();
+    assert.equal(f.vault.selectedGroupUuid.value, "all");
+    assert.deepEqual(titles(), ["A entry", "B entry", "Child entry", "Root entry"]);
+    assert.equal(page.visibleGroups.some(g => g.uuid === root), false);
+    assert.equal(f.vault.groups.value.some(g => g.uuid === root), true);
+    const writes = f.state.writes.length;
+    page.toggleGroup(a);
+    assert.deepEqual(titles(), ["A entry", "Child entry"]);
+    page.toggleGroup(b);
+    assert.deepEqual(titles(), ["B entry"]);
+    page.toggleGroup(b);
+    assert.equal(f.vault.selectedGroupUuid.value, "all");
+    assert.deepEqual(titles(), ["A entry", "B entry", "Child entry", "Root entry"]);
+    assert.equal(f.state.writes.length, writes, "selection changes never write the vault");
+  });
+
+  await scenario("group deletion reports success only after saving; failures stay dirty for save retry", async f => {
+    await f.vault.addGroup("Delete target");
+    const target = f.vault.groups.value.find(g => g.name === "Delete target").uuid;
+    const root = f.state.db.getDefaultGroup().uuid.id;
+    const writes = f.state.writes.length;
+    assert.equal(await f.vault.deleteGroup(root), false);
+    assert.equal(f.state.writes.length, writes);
+    f.state.failWrite = true;
+    assert.equal(await f.vault.deleteGroup(target), false);
+    assert.equal(f.vault.hasUnsavedChanges.value, true);
+    assert.notEqual(f.vault.error.value, "");
+    assert.equal(f.vault.groups.value.some(g => g.uuid === target), false);
+    f.state.failWrite = false;
+    assert.equal(await f.vault.flushSave(), true);
+    assert.equal(f.vault.hasUnsavedChanges.value, false);
+    await f.vault.addGroup("Saved delete target");
+    const saved = f.vault.groups.value.find(g => g.name === "Saved delete target").uuid;
+    assert.equal(await f.vault.deleteGroup(saved), true);
+    assert.equal(f.vault.status.value, "分组已移到回收站");
+    assert.equal(f.vault.groups.value.some(g => g.uuid === saved), false);
+  });
+
+  await scenario("failed group move stays dirty and a repeated drop retries saving without duplicates", async f => {
+    for (const name of ["A", "B"]) await f.vault.addGroup(name);
+    const a = f.vault.groups.value.find(g => g.name === "A").uuid;
+    const b = f.vault.groups.value.find(g => g.name === "B").uuid;
+    f.state.failWrite = true;
+    assert.equal(await f.vault.moveGroup(a, b), false);
+    assert.equal(f.vault.hasUnsavedChanges.value, true);
+    assert.notEqual(f.vault.error.value, "");
+    f.state.failWrite = false;
+    assert.equal(await f.vault.moveGroup(a, b), true);
+    assert.equal(f.vault.hasUnsavedChanges.value, false);
+    assert.equal(f.state.db.getGroup(new kdbxweb.KdbxUuid(b)).groups.filter(g => g.uuid.id === a).length, 1);
+  });
+
   await scenario("new vaults use strengthened defaults and cost measurement never writes", async f => {
     assert.equal(f.vault.vaultEncryption.value.memoryMiB, 64);
     assert.equal(f.vault.vaultEncryption.value.iterations, 3);
@@ -279,10 +435,43 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
     assert.equal(f.state.writes.length, before);
     assert.equal(f.vault.hasUnsavedChanges.value, false);
   });
+  await scenario("encryption selector follows current custom parameters and refreshes on same-path reopen", async f => {
+    const ui = f.mount(f.EncryptionSettings);
+    assert.equal(ui.profile, "recommended");
+    ui.profile = "strong"; ui.confirmed = true; ui.measuredMs = 123;
+    await encryptionFixture(f);
+    await f.nextTick();
+    assert.equal(ui.profile, "current", "legacy AES parameters must not be mislabeled as a preset");
+    assert.equal(ui.confirmed, false);
+    assert.equal(ui.measuredMs, null);
+    assert.equal(ui.target, null);
+    assert.equal(ui.profileOptions.find(option => option.value === "current").label, "当前 · 自定义参数");
+    const writes = f.state.writes.length;
+    ui.confirmed = true; await ui.apply();
+    assert.equal(f.state.writes.length, writes, "viewing custom parameters must not implicitly upgrade them");
+    ui.profile = "recommended";
+    assert.equal(ui.confirmed, false, "a different target requires fresh confirmation");
+    assert.equal(ui.target.memoryMiB, 64);
+  });
+
+  await scenario("encryption selector reflects the saved 256 MiB profile after reopening instead of resetting to recommended", async f => {
+    const db = f.state.db;
+    db.header.kdfParameters.set("M", kdbxweb.VarDictionary.ValueType.UInt64, kdbxweb.Int64.from(256 * 1024 * 1024));
+    f.state.vaultBytes = Array.from(new Uint8Array(await kdbxweb.Kdbx.prototype.save.call(db)));
+    assert.equal(await f.vault.openVault("SYNTHETIC_ONLY.kdbx", "SYNTHETIC_ONLY"), true);
+    assert.equal(f.vault.vaultEncryption.value.memoryMiB, 256);
+    const writes = f.state.writes.length;
+    const ui = f.mount(f.EncryptionSettings);
+    assert.equal(ui.profile, "maximum");
+    assert.equal(ui.target.memoryMiB, 256);
+    assert.equal(f.state.writes.length, writes, "displaying the current profile must not write or re-encrypt the vault");
+  });
+
   await scenario("encryption UI requires confirmation and upgrade backs up then atomically writes authenticated KDBX", async f => {
     await encryptionFixture(f);
     const ui = f.mount(f.EncryptionSettings);
     await ui.apply(); assert.equal(f.state.writes.length, 0);
+    ui.profile = "recommended";
     ui.confirmed = true; await ui.apply();
     assert.equal(ui.failed, false, f.vault.error.value);
     assert.equal(f.state.snapshotCreates.length, 1);
@@ -1055,6 +1244,30 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
     const empty = f.mount(f.EntryDrawer);
     assert.equal(empty.form.password, "");
   });
+  await scenario("clipboard ambiguous candidates cannot prefill until explicitly resolved", async f => {
+    document.hasFocus = () => true; document.hidden = false;
+    f.settings.clipboardRecognition = true;
+    f.state.clipboardCandidate = { sequence: 21, text: "用户名:first\n账号:second\n密码:SYNTHETIC", html: null, sourceUrl: null, sourceApp: null };
+    const main = f.mount(f.MainView);
+    main.onClipboardFocus(); await until(() => !!main.clipboardRecognition);
+    main.acceptClipboardRecord(0);
+    assert.equal(f.vault.drawer.value.open, false);
+    assert.ok(main.clipboardRecognition);
+    main.acceptClipboardRecord(0, { username: 99 });
+    assert.equal(f.vault.drawer.value.open, false);
+    main.acceptClipboardRecord(0, { username: 1 });
+    assert.equal(f.vault.drawer.value.open, true);
+    assert.equal(main.clipboardDraft.username, "second");
+    assert.equal(main.clipboardDraft.password, "SYNTHETIC");
+    assert.equal(f.vault.entries.value.length, 0);
+    assert.equal(f.state.writes.length, 0);
+    f.vault.closeDrawer();
+    f.state.clipboardCandidate.sequence = 22;
+    main.onClipboardFocus(); await until(() => !!main.clipboardRecognition);
+    main.acceptClipboardRecord(0, { username: -1 });
+    assert.equal(main.clipboardDraft.username, "");
+    assert.equal(f.state.writes.length, 0);
+  });
   await scenario("clipboard ignores dismissal, overlays, active edits and late results after lock begins", async f => {
     document.hasFocus = () => true; document.hidden = false;
     f.settings.clipboardRecognition = true;
@@ -1110,10 +1323,24 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
     assert.ok(f.state.nativeCalls.includes("cancel_auto_type"));
     assert.ok(f.state.nativeCalls.includes("clear_secret_clipboard"));
   });
+  await scenario("shared select preserves numeric/string values and ignores invalid or disabled options", async f => {
+    const values = [];
+    const numeric = f.mountControlled(f.AppSelect, { modelValue: 10, options: [{ value: 0, label: "关闭" }, { value: 10, label: "10 分钟" }, { value: 60, label: "1 小时", disabled: true }], "onUpdate:modelValue": value => values.push(value) });
+    numeric.state.updateValue("0");
+    assert.deepEqual(values, [0]); assert.equal(typeof values[0], "number");
+    numeric.state.updateValue("invalid"); numeric.state.updateValue("60");
+    assert.equal(values.length, 1);
+    numeric.props.disabled = true; await f.nextTick();
+    numeric.state.updateValue("10"); assert.equal(values.length, 1);
+    const strings = f.mount(f.AppSelect, { modelValue: "recent", options: [{ value: "recent", label: "最近修改" }, { value: "title", label: "按名称" }], "onUpdate:modelValue": value => values.push(value) });
+    strings.updateValue("title"); assert.equal(values.at(-1), "title");
+  });
   await scenario("dialog traps Tab/Escape and restores trigger focus", async f => {
     const element = () => ({ isConnected: true, matches: () => false, closest: () => null, getClientRects: () => [1], focus() { document.activeElement = this; } });
     const trigger = element(), first = element(), last = element();
     const root = { ...element(), querySelectorAll: () => [first, last], contains: el => [first, last].includes(el) };
+    let selectOpen = false;
+    root.querySelector = selector => selectOpen && selector.includes("data-app-select-content") ? {} : null;
     document.activeElement = trigger;
     let escaped = 0;
     const component = f.defineComponent({ setup() { f.useDialogFocus(f.ref(root), () => escaped++); return () => null; } });
@@ -1126,6 +1353,10 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
     assert.equal(document.activeElement, first);
     keydown({ key: "Tab", shiftKey: true, preventDefault() { prevented++; } });
     assert.equal(document.activeElement, last);
+    selectOpen = true;
+    keydown({ key: "Escape", preventDefault() { assert.fail("parent dialog must not handle select Escape"); } });
+    keydown({ key: "Tab", preventDefault() { assert.fail("select handles its own keyboard navigation"); } });
+    assert.equal(escaped, 0); selectOpen = false;
     keydown({ key: "Escape", preventDefault() {}, stopImmediatePropagation() {} });
     assert.equal(escaped, 1); assert.equal(prevented, 2);
     ui.unmount(); assert.equal(document.activeElement, trigger);
@@ -1415,6 +1646,104 @@ export { createRenderer, defineComponent, nextTick, h, reactive, ref } from 'vue
     await ui.recover(); assert.equal(f.state.snapshotExports.length, 1); assert.match(ui.message, /当前库未被替换/);
     assert.equal(f.vault.unlocked.value, true);
   });
+  async function lockSyncFixture(f) {
+    f.state.db.setKdf(kdbxweb.Consts.KdfId.Aes);
+    f.state.vaultBytes = Array.from(new Uint8Array(await kdbxweb.Kdbx.prototype.save.call(f.state.db)));
+    f.state.syncBytes = [...f.state.vaultBytes];
+    f.state.realSave = true;
+    f.state.webdavConfig = { configured: true, url: "https://example.invalid/lock.kdbx", username: "SYNTHETIC", hasPassword: true, lastSyncedAt: null };
+    assert.equal(await f.vault.openVault("SYNTHETIC_ONLY.kdbx", "SYNTHETIC_ONLY"), true);
+    f.setSyncOnLock(f.vault.vaultPath.value, true);
+    await f.vault.addEntry({ ...f.draft, title: "Saved before lock" });
+  }
+  await scenario("lock sync is opt-in and does not run on saves or reopening", async f => {
+    await f.vault.addEntry(f.draft);
+    assert.equal(f.state.nativeCalls.includes("webdav_prepare_sync"), false);
+    assert.equal(await f.vault.lock(), true);
+    assert.equal(f.state.nativeCalls.includes("webdav_prepare_sync"), false);
+  });
+  await scenario("idle auto-lock also starts lock sync after clearing decrypted state", async f => {
+    await lockSyncFixture(f);
+    f.settings.autoLockMinutes = 1;
+    f.mount(f.defineComponent({ setup() { f.useAutoLock(); return () => null; } }));
+    const [id, callback] = [...f.timers][0]; f.timers.delete(id); callback();
+    await securityUntil(() => !f.vault.unlocked.value);
+    await securityUntil(() => f.state.commits.length === 1);
+    assert.equal(f.settings.autoLockMinutes, 1);
+    assert.equal(f.vault.entries.value.length, 0);
+  });
+  await scenario("enabling lock sync after earlier saves still safely uploads on the first lock", async f => {
+    await lockSyncFixture(f);
+    const path = f.vault.vaultPath.value;
+    f.setSyncOnLock(path, false);
+    await f.vault.addEntry({ ...f.draft, title: "Before opt-in" });
+    f.setSyncOnLock(path, true);
+    assert.equal(await f.vault.lock(), true);
+    await securityUntil(() => f.state.commits.length === 1);
+    assert.equal(f.vault.unlocked.value, false);
+  });
+  await scenario("locking clears decrypted state before delayed sync and uploads only saved ciphertext", async f => {
+    await lockSyncFixture(f);
+    const network = gate(); f.state.prepareGate = network.promise;
+    const loads = f.state.loads;
+    assert.equal(await f.vault.lock(), true);
+    assert.equal(f.vault.unlocked.value, false);
+    assert.equal(f.vault.entries.value.length, 0);
+    await securityUntil(() => f.state.nativeCalls.includes("webdav_prepare_sync"));
+    assert.equal(f.state.commits.length, 0);
+    network.release();
+    await securityUntil(() => f.state.commits.length === 1);
+    await securityUntil(() => f.toastText.value === "已锁定，同步完成");
+    assert.equal(f.state.loads, loads, "post-lock upload must not decrypt anything");
+    assert.equal(f.vault.unlocked.value, false);
+  });
+  await scenario("lock sync refuses changed remote ciphertext and reports it on the locked screen", async f => {
+    await lockSyncFixture(f);
+    f.state.syncBytes = [...f.state.syncBytes, 1];
+    assert.equal(await f.vault.lock({ force: true }), true);
+    await securityUntil(() => f.vault.error.value.includes("远端有变化"));
+    assert.equal(f.state.commits.length, 0);
+    assert.equal(f.vault.unlocked.value, false);
+  });
+  await scenario("network failures never prevent locking and saving failures never upload", async f => {
+    await lockSyncFixture(f);
+    f.state.prepareError = "WD_NETWORK";
+    assert.equal(await f.vault.lock(), true);
+    await securityUntil(() => f.vault.error.value.includes("自动同步未完成"));
+    assert.equal(f.state.commits.length, 0);
+    assert.equal(f.vault.unlocked.value, false);
+  });
+  await scenario("forced lock after failed save skips lock sync", async f => {
+    await lockSyncFixture(f);
+    f.state.failWrite = true;
+    await f.vault.addEntry({ ...f.draft, title: "Unsaved" });
+    assert.equal(await f.vault.lock({ force: true }), true);
+    assert.equal(f.state.nativeCalls.includes("webdav_prepare_sync"), false);
+    assert.match(f.vault.error.value, /未能保存/);
+  });
+  await scenario("reopening a vault invalidates a delayed lock upload", async f => {
+    await lockSyncFixture(f);
+    const network = gate(); f.state.prepareGate = network.promise;
+    assert.equal(await f.vault.lock(), true);
+    await securityUntil(() => f.state.nativeCalls.includes("webdav_prepare_sync"));
+    assert.equal(await f.vault.openVault("SYNTHETIC_ONLY.kdbx", "SYNTHETIC_ONLY"), true);
+    network.release(); await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(f.state.commits.length, 0);
+    assert.equal(f.vault.unlocked.value, true);
+  });
+  await scenario("sync settings expose one lock switch and forget disables it", async f => {
+    f.state.webdavConfig = { configured: true, url: "https://example.invalid/lock.kdbx", username: "SYNTHETIC", hasPassword: true, lastSyncedAt: null };
+    const ui = f.mount(f.WebdavSettings); await until(() => ui.loaded && !ui.working);
+    assert.equal(ui.syncOnLock, false);
+    ui.syncOnLock = true;
+    assert.equal(f.getSyncOnLock(f.vault.vaultPath.value), true);
+    await ui.action("forget"); assert.equal(ui.confirmForget, true);
+    assert.equal(ui.syncOnLock, true);
+    await ui.action("forget");
+    assert.equal(ui.syncOnLock, false);
+    assert.equal(f.vault.webdavAvailability.value.configured, false);
+  });
+
   await scenario("quick sync opens configuration when needed, respects overlays and drafts, and reuses guarded synchronization", async f => {
     let opened = 0; const ui = f.mountControlled(f.SyncQuickBar, { blocked: false, onConfigure: () => opened++ });
     await until(() => !f.vault.webdavAvailability.value.loading);

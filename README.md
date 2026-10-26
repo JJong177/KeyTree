@@ -12,8 +12,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe"><img src="https://img.shields.io/badge/下载-Windows_x64_v0.1.0-657650?style=flat-square" alt="下载 Windows x64 安装包 v0.1.0" height="28" /></a>
-  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.1.0"><img src="https://img.shields.io/badge/版本-发布说明-5c4033?style=flat-square" alt="查看发布说明" height="28" /></a>
+  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.2.0/KeyTree-Setup.exe"><img src="https://img.shields.io/badge/下载-Windows_x64_v0.2.0-657650?style=flat-square" alt="下载 Windows x64 安装包 v0.2.0" height="28" /></a>
+  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.2.0"><img src="https://img.shields.io/badge/版本-发布说明-5c4033?style=flat-square" alt="查看发布说明" height="28" /></a>
   <a href="https://linux.do/"><img src="https://img.shields.io/badge/LINUX_DO-社区-ffb000?style=flat-square&amp;logo=discourse&amp;logoColor=white&amp;labelColor=555555" alt="LINUX DO 社区" height="28" /></a>
 </p>
 
@@ -25,9 +25,9 @@
 
 **KeyTree** 是一款面向 Windows 的本地优先密码管理器。把账号、密码和动态验证码整理在自己的 `.kdbx` 加密文件中，通过分组与搜索找到它们，用快速面板、复制或自动输入完成日常登录。
 
-**不配置云服务，也能管理本地密码库。** 需要跨设备使用时，再连接自己的 WebDAV 服务，手动同步同一份加密文件。
+**不配置云服务，也能管理本地密码库。** 需要跨设备使用时，再连接自己的 WebDAV 服务，手动同步或开启锁定时同步。
 
-> 当前版本 **0.1.0** · 安装包面向 **Windows x64**。界面截图使用虚构演示数据，SVG 图解为功能示意；不代表所有网盘和手机客户端已经通过兼容性验收。
+> 当前版本 **0.2.0** · [更新日志](CHANGELOG.md) · 安装包面向 **Windows x64**。界面截图使用虚构演示数据，SVG 图解为功能示意；不代表所有网盘和手机客户端已经通过兼容性验收。
 
 ## 界面预览
 
@@ -87,7 +87,7 @@
 
 ### 1. 安装 KeyTree
 
-从 [GitHub Releases 下载 `KeyTree-Setup.exe`](https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe)，按向导安装后启动 **KeyTree**。安装版无需 Node.js、Rust 或开发服务器。安装包作为 Release 附件提供，不放在源码目录中；自行构建见下方“开发与构建”。
+从 [GitHub Releases 下载 `KeyTree-Setup.exe`](https://github.com/JJong177/KeyTree/releases/download/v0.2.0/KeyTree-Setup.exe)，按向导安装后启动 **KeyTree**。安装版无需 Node.js、Rust 或开发服务器。安装包作为 Release 附件提供，不放在源码目录中；自行构建见下方“开发与构建”。
 
 - **系统依赖：** Microsoft Edge WebView2 Runtime；缺少时安装器会尝试联网补装。
 - **安装语言：** 简体中文或 English，仅影响安装向导，不改变应用界面语言。
@@ -117,7 +117,7 @@
 
 在 **设置 → 同步** 填写完整的 HTTPS `.kdbx` 文件地址、用户名与应用专用密码。保存后先做只读连接测试，再点击“立即同步”；主界面也提供快捷入口。
 
-同步会读取远端、验证同一库、合并并保存本地，再条件上传。远端版本变化时停止，不进行无条件覆盖。**本地已保存，不等于远端已更新；当前没有后台自动同步。**
+手动同步会读取远端、验证同一库、合并并保存本地，再条件上传。可在同步设置中启用**锁定时自动同步**（默认关闭）：先保存并锁定，再尝试上传密文；远端不是已知版本时停止并提示解锁后手动合并，不强制覆盖。没有定时或保存后自动同步。**本地已保存，不等于远端已更新。**
 
 使用坚果云时，先手动上传当前同一份 KDBX，再配置它的 WebDAV 文件地址，不能使用网页分享链接。不要让云盘客户端与内置同步同时管理同一本地文件。
 
@@ -127,7 +127,7 @@
 
 ### 备份：保留旧版，恢复时不覆盖原库
 
-入口：**设置 → 数据 → 多版本加密备份**。覆盖已有有效 KDBX 前保留上一版密文，也可手动备份当前已保存版本。
+入口：**设置 → 数据 → 备份版本**。覆盖已有有效 KDBX 前保留上一版密文，也可手动备份当前已保存版本。
 
 备份位于库文件旁的 `<库文件名>.keytree-backups` 目录；单库最多保留 **30 份、合计 256 MiB**，单份上限 **64 MiB**。恢复时先用当前凭据验证预览，再另存为不存在的新文件，不覆盖原库。
 

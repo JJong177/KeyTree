@@ -12,8 +12,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe"><img src="https://img.shields.io/badge/Download-Windows_x64_v0.1.0-657650?style=flat-square" alt="Download Windows x64 installer v0.1.0" height="28" /></a>
-  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.1.0"><img src="https://img.shields.io/badge/Release-Notes-5c4033?style=flat-square" alt="Read release notes" height="28" /></a>
+  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.2.0/KeyTree-Setup.exe"><img src="https://img.shields.io/badge/Download-Windows_x64_v0.2.0-657650?style=flat-square" alt="Download Windows x64 installer v0.2.0" height="28" /></a>
+  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.2.0"><img src="https://img.shields.io/badge/Release-Notes-5c4033?style=flat-square" alt="Read release notes" height="28" /></a>
   <a href="https://linux.do/"><img src="https://img.shields.io/badge/LINUX_DO-Community-ffb000?style=flat-square&amp;logo=discourse&amp;logoColor=white&amp;labelColor=555555" alt="LINUX DO community" height="28" /></a>
 </p>
 
@@ -25,9 +25,9 @@
 
 **KeyTree** is a local-first password manager for Windows. Organize accounts, passwords and one-time codes in your own encrypted `.kdbx` file. Find entries with groups and search, then use the quick panel, copy actions or auto-type for everyday sign-ins.
 
-**No cloud service is required to manage a local vault.** When you need access across devices, connect your own WebDAV service and manually sync the same encrypted file.
+**No cloud service is required to manage a local vault.** Connect your own WebDAV service for manual sync or optional sync on lock.
 
-> Current version: **0.1.0** · Installer: **Windows x64**. Screenshots use fictional data; SVGs are conceptual diagrams. The current application UI is in Chinese. English installer text and this README do not imply an English application UI or verified compatibility with every service and mobile client.
+> Current version: **0.2.0** · [Changelog](CHANGELOG.md) · Installer: **Windows x64**. Screenshots use fictional data; SVGs are conceptual diagrams. The current application UI is in Chinese. English installer text and this README do not imply an English application UI or verified compatibility with every service and mobile client.
 
 ## Interface preview
 
@@ -87,7 +87,7 @@ Windows Hello local quick unlock, idle locking, timed clipboard clearing and scr
 
 ### 1. Install KeyTree
 
-Download [`KeyTree-Setup.exe` from GitHub Releases](https://github.com/JJong177/KeyTree/releases/download/v0.1.0/KeyTree-Setup.exe), follow the wizard and launch **KeyTree**. The installed app does not require Node.js, Rust or a development server. The installer is a Release attachment, not part of the source tree. To build it yourself, see Development below.
+Download [`KeyTree-Setup.exe` from GitHub Releases](https://github.com/JJong177/KeyTree/releases/download/v0.2.0/KeyTree-Setup.exe), follow the wizard and launch **KeyTree**. The installed app does not require Node.js, Rust or a development server. The installer is a Release attachment, not part of the source tree. To build it yourself, see Development below.
 
 - **Runtime:** Microsoft Edge WebView2 Runtime. The installer attempts an online installation if it is missing.
 - **Installer language:** Simplified Chinese or English. This changes the installation wizard only, not the application UI.
@@ -117,7 +117,7 @@ Prefer a complete encrypted KDBX copy for exports. **CSV exports contain plainte
 
 In **Settings → Sync (设置 → 同步)**, enter the full HTTPS `.kdbx` file URL, username and application-specific password. Save, run the read-only connection test, then click **Sync now (立即同步)**. A shortcut is also available in the main view.
 
-Sync reads and verifies the same remote vault, merges it, saves locally and then performs a conditional upload. It stops if the remote version changes instead of overwriting unconditionally. **A local save does not mean the remote copy is up to date. There is no background automatic sync.**
+Manual sync verifies and merges the remote vault, saves locally, then conditionally uploads it. Optional **sync on lock** is off by default: save and lock first, then upload ciphertext only if the remote matches a known version; otherwise unlock and sync manually to merge. No unconditional overwrite, periodic sync or save-triggered automatic sync. **A local save does not mean the remote copy is up to date.**
 
 For Jianguoyun, first upload the same current KDBX manually, then configure its WebDAV file URL—not a web sharing link. Do not let a cloud-drive client and built-in sync manage the same local file simultaneously.
 
@@ -127,7 +127,7 @@ Mobile devices require a separate client supporting KDBX and the relevant servic
 
 ### Keep previous versions; restore without overwriting
 
-Open **Settings → Data → Versioned encrypted backups (设置 → 数据 → 多版本加密备份)**. KeyTree preserves the previous ciphertext before overwriting an existing valid KDBX; you can also back up the currently saved version manually.
+Open **Settings → Data → Backup versions (设置 → 数据 → 备份版本)**. KeyTree preserves the previous ciphertext before overwriting an existing valid KDBX; you can also back up the currently saved version manually.
 
 Backups live next to the vault in `<vault filename>.keytree-backups`. Each vault retains at most **30 copies / 256 MiB total**, with a **64 MiB** limit per copy. To recover, verify a preview with the current credentials, then export to a new, nonexistent filename without replacing the original.
 

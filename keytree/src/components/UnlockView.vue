@@ -11,7 +11,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useVault } from "../composables/useVault";
-import { settings, type VaultMeta } from "../lib/settings";
+import { settings, removeRecentVault, type VaultMeta } from "../lib/settings";
 import { credentialCachingAllowed } from "../lib/quick-unlock";
 import logoUrl from "../../assets/logo-256.png";
 import PublicPasswordHint from "./PublicPasswordHint.vue";
@@ -177,6 +177,19 @@ function pickRecent(vault: VaultMeta) {
   password.value = "";
 }
 
+function removeRecent(vault: VaultMeta) {
+  if (busy.value) return;
+  const selected = path.value.replace(/\//g, "\\") === vault.path.replace(/\//g, "\\");
+  removeRecentVault(vault.path);
+  delete helloMap.value[vault.path];
+  if (!settings.vaults.length || selected) {
+    helloReady.value = false;
+    confirmRestore.value = false;
+    backup.value = { exists: false, mtimeMs: 0, size: 0 };
+    switchMode(settings.vaults.length ? "recent" : "open");
+  }
+}
+
 async function pickKeyFile() {
   localError.value = "";
   try {
@@ -308,39 +321,53 @@ const shownError = computed(() => localError.value || error.value);
 
       <!-- 最近库：卡片列表（多库支持，一次解锁一个） -->
       <div v-if="mode === 'recent'" class="mb-3 space-y-2">
-        <button
+        <div
           v-for="v in settings.vaults"
           :key="v.path"
-          class="flex w-full items-center gap-3 rounded-[1.25rem] border px-4 py-3 text-left transition-colors duration-300"
+          class="flex w-full items-center gap-2 rounded-[1.25rem] border pr-3 transition-colors duration-300"
           :class="
             path === v.path
               ? 'border-[#8b9d77] bg-[#8b9d77]/10'
               : 'border-stone-200 bg-white hover:border-stone-300'
           "
-          @click="pickRecent(v)"
         >
-          <svg width="18" height="18" viewBox="0 0 20 20" class="shrink-0">
-            <path
-              d="M2 6 L6 6 L8 8 L18 8 L18 16 L2 16 Z"
-              :fill="path === v.path ? '#8b9d77' : '#d4a373'"
-              stroke="#5c4033"
-              stroke-width="1.2"
-            />
-          </svg>
-          <span class="min-w-0 flex-1">
-            <span class="block truncate text-sm font-medium text-stone-800">
-              {{ v.name }}
-            </span>
-            <span class="block truncate text-[11px] text-stone-400">{{ v.path }}</span>
-          </span>
-          <span
-            v-if="helloMap[v.path]"
-            class="shrink-0 rounded-full border border-[#8b9d77] bg-[#8b9d77]/15 px-2 py-0.5 text-[10px] text-[#5c4033]"
-            title="本机有此库的快速解锁密钥"
+          <button
+            class="flex min-w-0 flex-1 items-center gap-3 rounded-[1.25rem] px-4 py-3 text-left"
+            :title="v.path"
+            @click="pickRecent(v)"
           >
-            Hello
-          </span>
-        </button>
+            <svg width="18" height="18" viewBox="0 0 20 20" class="shrink-0">
+              <path
+                d="M2 6 L6 6 L8 8 L18 8 L18 16 L2 16 Z"
+                :fill="path === v.path ? '#8b9d77' : '#d4a373'"
+                stroke="#5c4033"
+                stroke-width="1.2"
+              />
+            </svg>
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-sm font-medium text-stone-800">
+                {{ v.name }}
+              </span>
+              <span class="block truncate text-[11px] text-stone-400">{{ v.path }}</span>
+            </span>
+            <span
+              v-if="helloMap[v.path]"
+              class="shrink-0 rounded-full border border-[#8b9d77] bg-[#8b9d77]/15 px-2 py-0.5 text-[10px] text-[#5c4033]"
+              title="本机有此库的快速解锁密钥"
+            >
+              Hello
+            </span>
+          </button>
+          <button
+            class="shrink-0 rounded-full px-2 py-1 text-xs text-stone-400 hover:bg-stone-100 hover:text-[#8b2332] disabled:cursor-not-allowed disabled:opacity-50"
+            title="仅移除访问记录，不删除密码库文件"
+            :aria-label="`移除 ${v.name} 的访问记录`"
+            :disabled="busy"
+            @click.stop="removeRecent(v)"
+          >
+            移除
+          </button>
+        </div>
         <p v-if="!settings.vaults.length" class="px-2 py-4 text-center text-xs text-stone-400">
           还没有使用记录
         </p>

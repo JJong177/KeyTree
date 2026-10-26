@@ -1,20 +1,24 @@
 {
   "name": "keytree",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "test:vault-save": "node scripts/test-vault-save.mjs",
+    "test:groups": "node scripts/test-groups.mjs",
+    "test:groups-browser": "node scripts/test-groups-browser.mjs",
     "test:features": "node scripts/test-features.mjs",
     "test:hint": "node scripts/test-master-password-hint.mjs",
     "test:settings": "node scripts/test-settings.mjs",
+    "test:lock-sync": "node scripts/test-lock-sync.mjs",
+    "test:lock-sync-browser": "node scripts/test-lock-sync-browser.mjs",
     "test:encryption": "node scripts/test-encryption.mjs",
     "test:clipboard": "node scripts/test-clipboard-capture.mjs",
     "test:clipboard-browser": "node scripts/test-clipboard-browser.mjs",
-    "test": "node scripts/test-features.mjs && node scripts/test-master-password-hint.mjs && node scripts/test-vault-save.mjs && node scripts/test-settings.mjs && node scripts/test-encryption.mjs && node scripts/test-clipboard-capture.mjs",
+    "test": "node scripts/test-features.mjs && node scripts/test-master-password-hint.mjs && node scripts/test-vault-save.mjs && node scripts/test-settings.mjs && node scripts/test-encryption.mjs && node scripts/test-clipboard-capture.mjs && node scripts/test-groups.mjs && node scripts/test-lock-sync.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
