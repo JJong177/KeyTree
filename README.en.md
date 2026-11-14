@@ -12,8 +12,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.2.0/KeyTree-Setup.exe"><img src="https://img.shields.io/badge/Download-Windows_x64_v0.2.0-657650?style=flat-square" alt="Download Windows x64 installer v0.2.0" height="28" /></a>
-  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.2.0"><img src="https://img.shields.io/badge/Release-Notes-5c4033?style=flat-square" alt="Read release notes" height="28" /></a>
+  <a href="https://github.com/JJong177/KeyTree/releases/download/v0.2.1/KeyTree-Setup.exe"><img src="https://img.shields.io/badge/Download-Windows_x64_v0.2.1-657650?style=flat-square" alt="Download Windows x64 installer v0.2.1" height="28" /></a>
+  <a href="https://github.com/JJong177/KeyTree/releases/tag/v0.2.1"><img src="https://img.shields.io/badge/Release-Notes-5c4033?style=flat-square" alt="Read release notes" height="28" /></a>
   <a href="https://linux.do/"><img src="https://img.shields.io/badge/LINUX_DO-Community-ffb000?style=flat-square&amp;logo=discourse&amp;logoColor=white&amp;labelColor=555555" alt="LINUX DO community" height="28" /></a>
 </p>
 
@@ -27,7 +27,7 @@
 
 **No cloud service is required to manage a local vault.** Connect your own WebDAV service for manual sync or optional sync on lock.
 
-> Current version: **0.2.0** · [Changelog](CHANGELOG.md) · Installer: **Windows x64**. Screenshots use fictional data; SVGs are conceptual diagrams. The current application UI is in Chinese. English installer text and this README do not imply an English application UI or verified compatibility with every service and mobile client.
+> Current version: **0.2.1** · [Changelog](CHANGELOG.md) · Installer: **Windows x64**. Screenshots use fictional data; SVGs are conceptual diagrams. The current application UI is in Chinese. English installer text and this README do not imply an English application UI or verified compatibility with every service and mobile client.
 
 ## Interface preview
 
@@ -87,7 +87,7 @@ Windows Hello local quick unlock, idle locking, timed clipboard clearing and scr
 
 ### 1. Install KeyTree
 
-Download [`KeyTree-Setup.exe` from GitHub Releases](https://github.com/JJong177/KeyTree/releases/download/v0.2.0/KeyTree-Setup.exe), follow the wizard and launch **KeyTree**. The installed app does not require Node.js, Rust or a development server. The installer is a Release attachment, not part of the source tree. To build it yourself, see Development below.
+Download [`KeyTree-Setup.exe` from GitHub Releases](https://github.com/JJong177/KeyTree/releases/download/v0.2.1/KeyTree-Setup.exe), follow the wizard and launch **KeyTree**. The installed app does not require Node.js, Rust or a development server. The installer is a Release attachment, not part of the source tree. To build it yourself, see Development below.
 
 - **Runtime:** Microsoft Edge WebView2 Runtime. The installer attempts an online installation if it is missing.
 - **Installer language:** Simplified Chinese or English. This changes the installation wizard only, not the application UI.

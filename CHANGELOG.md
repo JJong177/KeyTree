@@ -1,5 +1,37 @@
 # 更新日志 / Changelog
 
+## 0.2.1 — 2026-11-14
+
+### 新增与优化
+
+- 侧栏支持按账号筛选；过长名称会裁切，并可通过主题化提示查看完整名称。
+- 凭据字段可独立复制；账号支持自动补全与已保存账号复用。
+- 新建条目可先填写网址并自动获取网站标题；失败时安全回退到域名，且不覆盖手动标题。
+- 支持账号预填和不阻塞保存的相似条目预览；凭据候选优先匹配当前账号，并按最近使用排序。
+- 支持批量移动、追加标签和移至回收站，不提供永久批量删除；采用受保护的单次保存，失败时仅重试保存。
+- 底部以紧凑状态显示同步进度。
+- 关于页面显示原生应用版本，支持手动或静默启动检查更新并缓存 24 小时；更新说明以纯文本显示，并提供安全的官方 Release 与安装包链接。不自动安装或重启。
+
+### 发布说明
+
+- Windows x64 安装包未签名，Windows 可能显示 SmartScreen 或未知发布者警告。
+- 已安装 0.2.0 的用户须先手动安装 0.2.1，之后才能收到后续版本提醒。
+
+### English summary
+
+- Filter accounts in the sidebar; long names are clipped with a themed tooltip for the full name.
+- Copy credential fields independently; account autocomplete and reuse of saved accounts are supported.
+- Create entries URL-first with automatic website titles, a safe domain fallback, and preservation of manually entered titles.
+- Account prefill and similar-entry previews do not block saving; credential candidates prioritize the current account and recent use.
+- Bulk move, tag append and move-to-recycle-bin actions use one guarded save with save-only retry on failure; there is no permanent bulk deletion.
+- A compact footer shows sync status.
+- About displays the native app version and supports manual or silent-on-startup release checks with a 24-hour cache. Notes are plain text, with safe official release and installer links; there is no automatic installation or restart.
+
+### Release notes
+
+- The Windows x64 installer is unsigned; Windows may show a SmartScreen or unknown-publisher warning.
+- Users on 0.2.0 must manually install 0.2.1 before they can receive reminders about later versions.
+
 ## 0.2.0 — 2026-10-26
 
 ### 新增与优化
