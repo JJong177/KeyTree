@@ -76,7 +76,7 @@ onBeforeUnmount(() => { disposed = true; generation++; password.value = ""; emit
       <summary class="cursor-pointer font-medium text-stone-700">坚果云配置帮助</summary>
       <div class="mt-3 space-y-2">
         <p>在坚果云安全设置的第三方应用管理中，为 KeyTree 生成应用密码；不要填写坚果云登录密码。</p>
-        <p>用户名填坚果云账号（通常为邮箱）；地址填写 WebDAV 服务地址后加上实际目录和库文件名，例如：</p>
+        <p>坚果云账号通常为邮箱；地址填写 WebDAV 服务地址后加上实际目录和库文件名，例如：</p>
         <code class="block break-all rounded-lg bg-stone-100 p-2 text-[11px]">https://dav.jianguoyun.com/dav/KeyTree/vault.kdbx</code>
         <p>示例路径需换成你的实际路径，上级目录须先创建。网页分享链接（/c/sd/…）不能用于同步。</p>
         <p>先保存并测试连接；多端须使用同一份 KDBX。</p>
@@ -85,7 +85,7 @@ onBeforeUnmount(() => { disposed = true; generation++; password.value = ""; emit
     <div class="space-y-3">
       <label class="block text-xs text-stone-600" for="webdav-url">远端 KDBX 完整地址</label>
       <input id="webdav-url" v-model="url" :disabled="disabled" type="url" autocomplete="off" spellcheck="false" placeholder="https://dav.jianguoyun.com/dav/目录/库名.kdbx" class="w-full rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm" />
-      <label class="block text-xs text-stone-600" for="webdav-user">用户名</label>
+      <label class="block text-xs text-stone-600" for="webdav-user">账号</label>
       <input id="webdav-user" v-model="username" :disabled="disabled" autocomplete="off" spellcheck="false" class="w-full rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm" />
       <label class="block text-xs text-stone-600" for="webdav-password">应用专用密码</label>
       <input id="webdav-password" v-model="password" :disabled="disabled" type="password" autocomplete="new-password" :placeholder="config.hasPassword ? '已保存在本机；留空保留' : '填写服务提供的应用专用密码'" class="w-full rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm" />

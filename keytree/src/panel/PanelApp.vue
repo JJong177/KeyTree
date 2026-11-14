@@ -53,7 +53,7 @@ const actions = computed<PanelAction[]>(() => {
   if (entry.username) {
     list.push({
       key: "copy-username",
-      label: "复制用户名",
+      label: "复制账号",
       run: () => { void requestCopy("username"); },
     });
   }
@@ -269,7 +269,7 @@ onBeforeUnmount(() => {
           ref="inputRef"
           v-model="query"
           class="min-w-0 flex-1 bg-transparent text-base font-semibold text-stone-800 placeholder:font-normal placeholder:text-stone-400 focus:outline-none"
-          placeholder="搜索标题、用户名、网址、标签…"
+          placeholder="搜索标题、账号、网址、标签…"
           @input="resetToSearch"
         />
         <span class="shrink-0 rounded-full border border-stone-200 bg-white px-2 py-0.5 text-[11px] text-stone-500">

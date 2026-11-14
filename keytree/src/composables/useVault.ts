@@ -16,6 +16,7 @@ import { fetchFavicon, bytesToDataUrl } from "../lib/favicon";
 import { buildChromeCsv } from "../lib/csv";
 import { toast } from "../lib/toast";
 import { searchEntries } from "../lib/search";
+import { buildCredentialCandidates, buildUsernameGroups, usernameKey } from "../lib/entry-identity";
 import { applyCustomFields, isReservedField, validateCustomFields, validateSequence, type CustomFieldDraft } from "../lib/entry-fields";
 import { parseTotpInput, normalizeTotpInput } from "../lib/totp";
 import { analyzeImport, classifyImportRecords, type ImportRow, type ImportRecord } from "../lib/import-plan";
@@ -93,6 +94,18 @@ export interface HistoryItem {
 
 export type SortMode = "recent" | "title" | "used";
 
+export type BulkEntryKind = "move" | "tags" | "trash";
+export type BulkEntryAction = { kind: "move"; groupUuid: string } | { kind: "tags"; tags: string } | { kind: "trash" };
+interface BulkDialogState { kind: BulkEntryKind; uuids: string[]; epoch: number }
+interface BulkPlan {
+  dialog: BulkDialogState;
+  current: Kdbx;
+  path: string;
+  revision: number;
+  sources: KdbxEntry[];
+  recycleBinUuid: string | null;
+}
+
 const db = shallowRef<Kdbx | null>(null);
 const engine = shallowRef<Kdbxweb | null>(null);
 const vaultPath = ref("");
@@ -123,6 +136,8 @@ const query = ref("");
 const sortMode = ref<SortMode>("recent");
 const favoritesOnly = ref(false);
 const selectedGroupUuid = ref("all");
+const sidebarView = ref<"groups" | "usernames">("groups");
+const selectedUsername = ref<string | null>(null);
 const selectedUuid = ref("");
 const drawer = ref<{ open: boolean; mode: "create" | "edit"; uuid: string }>({
   open: false,
@@ -131,15 +146,40 @@ const drawer = ref<{ open: boolean; mode: "create" | "edit"; uuid: string }>({
 });
 /** 新建抽屉默认落在哪个分组 */
 const pendingGroup = ref("");
+const pendingUsername = ref("");
 /** Invalidates in-flight clipboard previews before asynchronous lock/save work starts. */
 const clipboardCaptureEpoch = ref(0);
 const clipboardLockRequests = ref(0);
 const clipboardCaptureBlocked = computed(() => clipboardLockRequests.value > 0);
+const credentialEpoch = ref(0);
+const lockOperationCount = ref(0);
+const lockInProgress = computed(() => lockOperationCount.value > 0);
 /** 回收站分组（KeePass 的 Meta.RecycleBinUuid 指向它） */
 const trash = ref<{ uuid: string; count: number } | null>(null);
 
 const entryRefs = new Map<string, KdbxEntry>();
 const groupRefs = new Map<string, KdbxGroup>();
+
+const selectionMode = ref(false);
+const bulkSelectedUuids = ref<string[]>([]);
+const bulkDialog = ref<BulkDialogState | null>(null);
+const bulkWorking = ref(false);
+const bulkPendingSave = ref(false);
+const bulkError = ref("");
+const bulkInteractionBlocked = computed(() => bulkWorking.value || bulkPendingSave.value || !!bulkDialog.value);
+let bulkPlan: BulkPlan | null = null;
+let bulkRun = 0;
+const bulkTargetGroups = computed(() => groups.value.filter(group => {
+  const actual = groupRefs.get(group.uuid);
+  return !!actual && !groupIsInTrash(actual);
+}));
+const canBulkTrash = computed(() => {
+  void groups.value;
+  const current = db.value;
+  const id = current?.meta.recycleBinUuid?.id;
+  return !!current?.meta.recycleBinEnabled && !!id && !!groupRefs.get(id)
+    && groupRefs.get(id) !== current.getDefaultGroup();
+});
 
 /** customIcon uuid → data URL（rebuild 频繁，避免重复转 base64） */
 const iconUrls = new Map<string, string>();
@@ -326,10 +366,17 @@ const selectedGroup = computed<GroupVM | null>(
   () => groups.value.find((g) => g.uuid === selectedGroupUuid.value) ?? null
 );
 
+const usernameGroups = computed(() => buildUsernameGroups(entries.value));
+const credentialCandidates = computed(() => buildCredentialCandidates(entries.value));
+
 const visibleEntries = computed<EntryVM[]>(() => {
   const binUuid = trash.value?.uuid ?? "";
   let list: EntryVM[];
-  if (selectedGroupUuid.value === "all") {
+  if (sidebarView.value === "usernames") {
+    list = entries.value.filter((entry) =>
+      !entry.inTrash && (selectedUsername.value === null || usernameKey(entry.username) === selectedUsername.value)
+    );
+  } else if (selectedGroupUuid.value === "all") {
     // 全部条目 = 不含回收站里的
     list = entries.value.filter((e) => !e.inTrash);
   } else if (binUuid && selectedGroupUuid.value === binUuid) {
@@ -342,6 +389,29 @@ const visibleEntries = computed<EntryVM[]>(() => {
   if (favoritesOnly.value && !selectedIsTrash.value) list = list.filter(e => e.favorite);
   return searchEntries(list, query.value, sortMode.value);
 });
+
+watch([sidebarView, selectedGroupUuid, selectedUsername, query, favoritesOnly], () => {
+  clearBulkContext();
+}, { flush: "sync" });
+watch(visibleEntries, list => {
+  if (bulkWorking.value) return;
+  const ids = new Set(list.filter(entry => !entry.inTrash).map(entry => entry.uuid));
+  const next = bulkSelectedUuids.value.filter(id => ids.has(id));
+  if (next.length !== bulkSelectedUuids.value.length) {
+    bulkSelectedUuids.value = next;
+    if (!bulkPendingSave.value) { bulkDialog.value = null; bulkPlan = null; }
+  }
+  if (selectedIsTrash.value) selectionMode.value = false;
+});
+watch(credentialEpoch, () => {
+  bulkRun++;
+  selectionMode.value = false;
+  bulkSelectedUuids.value = [];
+  bulkDialog.value = null;
+  bulkPlan = null;
+  pendingUsername.value = "";
+  if (!bulkPendingSave.value) bulkError.value = "";
+}, { flush: "sync" });
 
 const selectedEntry = computed<EntryVM | null>(
   () => visibleEntries.value.find((e) => e.uuid === selectedUuid.value) ?? null
@@ -613,6 +683,13 @@ async function saveVault(): Promise<boolean> {
     busy.value = false;
   }
 }
+
+watch(hasUnsavedChanges, dirty => {
+  if (!dirty && bulkPendingSave.value) {
+    bulkPendingSave.value = false;
+    bulkSelectedUuids.value = [];bulkDialog.value = null;bulkPlan = null;bulkError.value = "";
+  }
+});
 
 /**
  * 合并写：500ms 内的多次调用只落一次盘。
@@ -977,6 +1054,7 @@ async function stashQuickUnlock(
 
 let unlockGeneration = 0, unlockInFlight = 0;
 function startUnlock(): number {
+  credentialEpoch.value++;
   const run = ++unlockGeneration;
   unlockInFlight = run; busy.value = true;
   return run;
@@ -1090,7 +1168,7 @@ async function openVault(
     savedCiphertextFingerprint = openedFingerprint;
     lockSyncBaselineFingerprint = openedFingerprint;
     keyFileBytes.value = keyFile?.slice() ?? null;
-    selectedGroupUuid.value = "all";
+    resetSidebarSelection();
     query.value = "";
     // 换库必须清图标缓存：host → 图标 id 是跨库不通用的 uuid
     iconUrls.clear();
@@ -1163,7 +1241,7 @@ async function createVault(
     savedCiphertextFingerprint = createdFingerprint;
     lockSyncBaselineFingerprint = createdFingerprint;
     keyFileBytes.value = keyFile?.slice() ?? null;
-    selectedGroupUuid.value = "all";
+    resetSidebarSelection();
     query.value = "";
     rebuild();
     selectedUuid.value = visibleEntries.value[0]?.uuid ?? "";
@@ -1347,6 +1425,7 @@ const FAVORITE_KEY = "keytree.favorite";
 
 /** 收藏/取消收藏条目（存 KDBX CustomData，其他客户端无感） */
 async function toggleFavorite(uuid: string): Promise<void> {
+  if (bulkWorking.value || bulkPendingSave.value || lockInProgress.value) return;
   const entry = entryRefs.get(uuid);
   if (!entry) return;
   error.value = "";
@@ -1442,6 +1521,7 @@ async function maybeFetchIcon(uuid: string): Promise<boolean> {
 
 /** 手动重新抓图标（详情页按钮）：清掉 host 缓存强制重来，结果用 toast 明确反馈 */
 async function refreshIcon(uuid: string): Promise<void> {
+  if (bulkWorking.value || bulkPendingSave.value || lockInProgress.value) return;
   const entry = entryRefs.get(uuid);
   if (!entry) return;
   const host = hostOf(fieldText(entry, "URL"));
@@ -1648,6 +1728,7 @@ function applyDraft(entry: KdbxEntry, draft: EntryDraft): void {
 }
 
 async function addEntry(draft: EntryDraft): Promise<string | null> {
+  if (bulkWorking.value || bulkPendingSave.value || lockInProgress.value) return null;
   const current = db.value;
   if (!current) return null;
   error.value = "";
@@ -1695,6 +1776,7 @@ function matchesDraft(uuid: string, draft: EntryDraft): boolean {
 }
 
 async function updateEntry(uuid: string, draft: EntryDraft): Promise<boolean> {
+  if (bulkWorking.value || bulkPendingSave.value || lockInProgress.value) return false;
   const current = db.value;
   const entry = entryRefs.get(uuid);
   if (!current || !entry) return false;
@@ -1726,6 +1808,7 @@ async function updateEntry(uuid: string, draft: EntryDraft): Promise<boolean> {
 }
 
 async function removeEntry(uuid: string): Promise<void> {
+  if (bulkWorking.value || bulkPendingSave.value || lockInProgress.value) return;
   const current = db.value;
   const entry = entryRefs.get(uuid);
   if (!current || !entry) return;
@@ -1756,6 +1839,7 @@ function groupIsInTrash(group: KdbxGroup | undefined): boolean {
 
 /** 从回收站恢复：优先回到删除前所在分组 */
 async function restoreEntry(uuid: string): Promise<void> {
+  if (bulkWorking.value || bulkPendingSave.value || lockInProgress.value) return;
   const current = db.value;
   const entry = entryRefs.get(uuid);
   if (!current || !entry) return;
@@ -1779,6 +1863,7 @@ async function restoreEntry(uuid: string): Promise<void> {
 
 /** 彻底删除（不可恢复）：move 到 undefined 会给对象打墓碑 */
 async function purgeEntry(uuid: string): Promise<void> {
+  if (bulkWorking.value || bulkPendingSave.value || lockInProgress.value) return;
   const current = db.value;
   const entry = entryRefs.get(uuid);
   if (!current || !entry) return;
@@ -1794,6 +1879,7 @@ async function purgeEntry(uuid: string): Promise<void> {
 }
 
 async function emptyTrash(): Promise<void> {
+  if (bulkWorking.value || bulkPendingSave.value || lockInProgress.value) return;
   const current = db.value;
   const bin = trash.value;
   if (!current || !bin) return;
@@ -1813,6 +1899,7 @@ async function emptyTrash(): Promise<void> {
 }
 
 async function renameGroup(uuid: string, name: string): Promise<void> {
+  if (bulkWorking.value || bulkPendingSave.value || lockInProgress.value) return;
   const group = groupRefs.get(uuid);
   const trimmed = name.trim();
   if (!group || !trimmed) return;
@@ -1828,6 +1915,7 @@ async function renameGroup(uuid: string, name: string): Promise<void> {
 }
 
 async function deleteGroup(uuid: string): Promise<boolean> {
+  if (bulkWorking.value || bulkPendingSave.value || lockInProgress.value) return false;
   const current = db.value;
   const group = groupRefs.get(uuid);
   if (!current || !group || busy.value) return false;
@@ -1858,6 +1946,7 @@ async function moveGroup(
   targetUuid = "",
   position: "inside" | "before" | "after" = "inside"
 ): Promise<boolean> {
+  if (bulkWorking.value || bulkPendingSave.value || lockInProgress.value) return false;
   const current = db.value;
   const source = groupRefs.get(uuid);
   if (!current || busy.value || !source) return false;
@@ -1891,6 +1980,7 @@ async function moveGroup(
 }
 
 async function addGroup(name: string, parentUuid = ""): Promise<void> {
+  if (bulkWorking.value || bulkPendingSave.value || lockInProgress.value) return;
   const current = db.value;
   if (!current || !name.trim()) return;
   try {
@@ -2034,31 +2124,228 @@ async function retryHistorySave(): Promise<boolean> {
     return ok;
   } finally { historyMutating = false; busy.value = false; }
 }
+// Batch mutation and persistence share the existing save chain, not per-entry save calls.
+function clearBulkContext(): void {
+  bulkSelectedUuids.value = [];
+  if (!bulkPendingSave.value) {
+    bulkDialog.value = null;
+    bulkPlan = null;
+    bulkError.value = "";
+  } else if (!bulkWorking.value) {
+    bulkDialog.value = null;
+    bulkPlan = null;
+  }
+}
+
+function startBulkSelection(): void {
+  if (!db.value || busy.value || lockInProgress.value || selectedIsTrash.value || drawer.value.open || bulkInteractionBlocked.value) return;
+  selectionMode.value = true;
+  clearBulkContext();
+}
+function exitBulkSelection(): void {
+  if (bulkWorking.value) return;
+  selectionMode.value = false;
+  clearBulkContext();
+}
+function toggleBulkSelection(uuid: string): void {
+  if (!selectionMode.value || busy.value || bulkInteractionBlocked.value || !visibleEntries.value.some(entry => entry.uuid === uuid && !entry.inTrash)) return;
+  bulkSelectedUuids.value = bulkSelectedUuids.value.includes(uuid)
+    ? bulkSelectedUuids.value.filter(id => id !== uuid) : [...bulkSelectedUuids.value, uuid];
+}
+function selectAllBulkEntries(): void {
+  if (!selectionMode.value || busy.value || bulkInteractionBlocked.value) return;
+  bulkSelectedUuids.value = visibleEntries.value.filter(entry => !entry.inTrash).map(entry => entry.uuid);
+}
+function clearBulkSelection(): void {
+  if (bulkWorking.value || bulkPendingSave.value) return;
+  clearBulkContext();
+}
+function openBulkDialog(kind: BulkEntryKind): void {
+  const current = db.value;
+  if (!current || !selectionMode.value || busy.value || lockInProgress.value || bulkInteractionBlocked.value || !bulkSelectedUuids.value.length) return;
+  if (kind === "trash" && !canBulkTrash.value) { bulkError.value = "请先启用回收站，批量操作不支持永久删除"; return; }
+  const visible = new Set(visibleEntries.value.filter(entry => !entry.inTrash).map(entry => entry.uuid));
+  const ids = [...new Set(bulkSelectedUuids.value)];
+  const sources = ids.map(id => entryRefs.get(id));
+  if (ids.some((id,index) => !visible.has(id) || !sources[index])) { clearBulkContext(); return; }
+  const dialog: BulkDialogState = { kind, uuids: ids, epoch: credentialEpoch.value };
+  bulkDialog.value = dialog;
+  bulkPlan = { dialog, current, path: vaultPath.value, revision: changeRevision.value, sources: sources as KdbxEntry[], recycleBinUuid: current.meta.recycleBinUuid?.id ?? null };
+  bulkError.value = "";
+}
+function closeBulkDialog(): void {
+  if (bulkWorking.value) return;
+  bulkDialog.value = null;
+  bulkPlan = null;
+  if (!bulkPendingSave.value) bulkError.value = "";
+}
+
+function bulkActive(plan: BulkPlan, run: number): boolean {
+  return bulkRun === run && db.value === plan.current && vaultPath.value === plan.path
+    && credentialEpoch.value === plan.dialog.epoch && !lockInProgress.value;
+}
+function validateBulkPlan(plan: BulkPlan): void {
+  if (bulkPlan !== plan || bulkDialog.value?.epoch !== plan.dialog.epoch || changeRevision.value !== plan.revision) {
+    throw new Error("条目已变化，请取消后重新选择");
+  }
+  const visible = new Set(visibleEntries.value.filter(entry => !entry.inTrash).map(entry => entry.uuid));
+  for (const source of plan.sources) {
+    if (entryRefs.get(source.uuid.id) !== source || !source.parentGroup || groupIsInTrash(source.parentGroup) || !visible.has(source.uuid.id)) {
+      throw new Error("所选条目已变化，请取消后重新选择");
+    }
+  }
+}
+
+async function applyBulkAction(action: BulkEntryAction): Promise<boolean> {
+  const plan = bulkPlan;
+  if (!plan || !db.value || busy.value || bulkWorking.value || bulkPendingSave.value || lockInProgress.value || action.kind !== plan.dialog.kind) return false;
+  const operation: BulkEntryAction = action.kind === "move" ? {kind: "move", groupUuid: action.groupUuid}
+    : action.kind === "tags" ? {kind: "tags", tags: action.tags} : {kind: "trash"};
+  const requestedTarget = operation.kind === "move" ? groupRefs.get(operation.groupUuid) : null;
+  const run = ++bulkRun;
+  bulkWorking.value = true; busy.value = true; bulkError.value = "";
+  cancelScheduledSave();
+  const task = saveChain.catch(() => false).then(async () => {
+    try {
+      if (!bulkActive(plan,run)) return false;
+      if (knownStat.value && await diskChangedSinceKnown()) {
+        if (!bulkActive(plan,run)) return false;
+        await mergeFromDisk();
+        if (bulkActive(plan,run)) throw new Error("检测到外部修改，请取消后重新选择条目");
+      }
+      if (!bulkActive(plan,run)) return false;
+      validateBulkPlan(plan);
+      let target: KdbxGroup | undefined;
+      if (operation.kind === "move") {
+        target = groupRefs.get(operation.groupUuid);
+        if (!target || target !== requestedTarget || groupIsInTrash(target)) throw new Error("目标分组已失效，请重新选择");
+      } else if (operation.kind === "trash") {
+        target = plan.current.meta.recycleBinUuid ? groupRefs.get(plan.current.meta.recycleBinUuid.id) : undefined;
+        if (!plan.current.meta.recycleBinEnabled || !target || target === plan.current.getDefaultGroup()
+          || plan.current.meta.recycleBinUuid?.id !== plan.recycleBinUuid) throw new Error("回收站配置已变化，未执行任何删除");
+      }
+      const labels = operation.kind === "tags" ? [...new Set(operation.tags.split(/[,，]/).map(tag => tag.trim()).filter(Boolean))] : [];
+      const updates = plan.sources.map(entry => ({ entry, tags: [...entry.tags, ...labels.filter(label => !entry.tags.includes(label))] }))
+        .filter(item => operation.kind === "tags" ? item.tags.length !== item.entry.tags.length : item.entry.parentGroup !== target);
+      if (!updates.length) {
+        bulkSelectedUuids.value = []; bulkDialog.value = null; bulkPlan = null;
+        return true;
+      }
+      // All fallible preconditions above are checked before the synchronous mutation pass.
+      for (const {entry,tags} of updates) {
+        if (operation.kind === "tags") {
+          pushHistory(entry); entry.tags = tags; entry.times.update();
+        } else {
+          plan.current.move(entry, target);
+        }
+      }
+      changeRevision.value++;
+      bulkPendingSave.value = true;
+      rebuild();
+      const saved = await persist(true);
+      if (!bulkActive(plan,run)) return false;
+      if (!saved || hasUnsavedChanges.value) {
+        bulkError.value = "已应用到内存，尚未保存到磁盘。请重试保存或另存 KDBX 副本。";
+        return false;
+      }
+      bulkPendingSave.value = false;
+      bulkSelectedUuids.value = []; bulkDialog.value = null; bulkPlan = null;
+      status.value = operation.kind === "move" ? "所选条目已移动" : operation.kind === "tags" ? "标签已添加" : "所选条目已移到回收站";
+      return true;
+    } catch (reason) {
+      if (bulkActive(plan,run)) bulkError.value = msg(reason);
+      return false;
+    }
+  });
+  saveChain = task;
+  try { return await task; } finally {
+    if (bulkRun === run) { bulkWorking.value = false; busy.value = false; }
+  }
+}
+
+async function retryBulkSave(): Promise<boolean> {
+  if (!bulkPendingSave.value || bulkWorking.value || busy.value || lockInProgress.value || !db.value) return false;
+  const current = db.value, path = vaultPath.value, epoch = credentialEpoch.value, run = ++bulkRun;
+  const active = () => bulkRun === run && db.value === current && vaultPath.value === path && credentialEpoch.value === epoch && !lockInProgress.value;
+  bulkWorking.value = true;busy.value = true;bulkError.value = "";cancelScheduledSave();
+  const task = saveChain.catch(() => false).then(async () => {
+    if (!active()) return false;
+    const saved = await persist(true);
+    if (!active()) return false;
+    if (!saved || hasUnsavedChanges.value) { bulkError.value = "批量修改仍未保存，请重试或另存 KDBX 副本。";return false; }
+    bulkPendingSave.value = false;bulkSelectedUuids.value = [];bulkDialog.value = null;bulkPlan = null;
+    return true;
+  });
+  saveChain = task;
+  try { return await task; } finally { if (bulkRun === run) {bulkWorking.value = false;busy.value = false;} }
+}
+
+function resetSidebarSelection(): void {
+  pendingUsername.value = "";
+  selectionMode.value = false;
+  bulkSelectedUuids.value = [];bulkDialog.value = null;bulkPlan = null;
+  bulkWorking.value = false;bulkPendingSave.value = false;bulkError.value = "";
+  sidebarView.value = "groups";
+  selectedUsername.value = null;
+  selectedGroupUuid.value = "all";
+}
+
+function setSidebarView(view: "groups" | "usernames"): void {
+  if (sidebarView.value === view) return;
+  sidebarView.value = view;
+  selectedGroupUuid.value = "all";
+  selectedUsername.value = null;
+  selectedUuid.value = "";
+}
+
+function selectUsername(value: string | null): void {
+  sidebarView.value = "usernames";
+  selectedGroupUuid.value = "all";
+  selectedUsername.value = value;
+  selectedUuid.value = "";
+}
+
+function credentialsOf(uuid: string, expectedEpoch: number): { username: string; password: string } | null {
+  if (!db.value || lockInProgress.value || expectedEpoch !== credentialEpoch.value) return null;
+  const entry = entryRefs.get(uuid);
+  const metadata = entries.value.find((item) => item.uuid === uuid);
+  if (!entry || !metadata || metadata.inTrash) return null;
+  return { username: fieldText(entry, "UserName"), password: fieldText(entry, "Password") };
+}
 
 function selectEntry(uuid: string): void {
   selectedUuid.value = uuid;
 }
 
 function selectGroup(uuid: string): void {
+  sidebarView.value = "groups";
+  selectedUsername.value = null;
   selectedGroupUuid.value = uuid;
   selectedUuid.value = "";
 }
 
 function openCreateDrawer(): void {
+  if (bulkInteractionBlocked.value || bulkWorking.value) return;
+  exitBulkSelection();
   const selected = selectedGroupUuid.value;
   const inTrash = !!trash.value && selected === trash.value.uuid;
-  const groupUuid =
-    selected !== "all" && !inTrash ? selected : (groups.value[0]?.uuid ?? "");
+  const groupUuid = sidebarView.value === "usernames"
+    ? (db.value?.getDefaultGroup().uuid.id ?? groups.value[0]?.uuid ?? "")
+    : selected !== "all" && !inTrash ? selected : (groups.value[0]?.uuid ?? "");
   drawer.value = { open: true, mode: "create", uuid: "" };
   pendingGroup.value = groupUuid;
+  pendingUsername.value = sidebarView.value === "usernames" ? selectedUsername.value || "" : "";
 }
 
 function openEditDrawer(uuid: string): void {
+  if (bulkInteractionBlocked.value || selectionMode.value) return;
+  pendingUsername.value = "";
   drawer.value = { open: true, mode: "edit", uuid };
 }
 
 function closeDrawer(): void {
   drawer.value.open = false;
+  pendingUsername.value = "";
 }
 
 /**
@@ -2067,7 +2354,10 @@ function closeDrawer(): void {
  * 返回值只表示是否已经锁定，不表示强制锁定前保存一定成功。
  */
 async function lock(options: { force?: boolean } = {}): Promise<boolean> {
+  credentialEpoch.value++;
+  lockOperationCount.value++;
   clipboardLockRequests.value++;
+  if (bulkWorking.value) { bulkWorking.value = false; busy.value = false; }
   try {
     clipboardCaptureEpoch.value++;
     unlockGeneration++;
@@ -2097,6 +2387,7 @@ async function lock(options: { force?: boolean } = {}): Promise<boolean> {
     cancelScheduledSave();
     resetSaveState();
     cancelImport();
+    bulkPendingSave.value = false;bulkError.value = "";
     favoritesOnly.value = false;
     knownStat.value = null;
     knownPublicData = "";
@@ -2111,7 +2402,7 @@ async function lock(options: { force?: boolean } = {}): Promise<boolean> {
     iconUrls.clear();
     hostIcons.clear();
     query.value = "";
-    selectedGroupUuid.value = "all";
+    resetSidebarSelection();
     selectedUuid.value = "";
     drawer.value.open = false;
     historyPending.value = false;
@@ -2134,7 +2425,7 @@ async function lock(options: { force?: boolean } = {}): Promise<boolean> {
         });
     }
     return true;
-  } finally { clipboardLockRequests.value--; }
+  } finally { lockOperationCount.value--; clipboardLockRequests.value--; }
 }
 
 /** 查询同目录滚动备份（解锁失败时决定要不要给「从备份恢复」入口） */
@@ -2226,9 +2517,14 @@ export function useVault() {
     groups,
     entries,
     visibleEntries,
+    sidebarView,
+    selectedUsername,
+    usernameGroups,
+    credentialCandidates,
     selectedGroup,
     selectedEntry,
     selectedGroupUuid,
+    credentialEpoch,
     selectedUuid,
     query,
     sortMode,
@@ -2254,6 +2550,11 @@ export function useVault() {
     status,
     drawer,
     pendingGroup,
+    pendingUsername,
+    selectionMode, bulkSelectedUuids, bulkDialog, bulkWorking, bulkPendingSave, bulkError,
+    bulkTargetGroups, canBulkTrash, bulkInteractionBlocked,
+    startBulkSelection, exitBulkSelection, toggleBulkSelection, selectAllBulkEntries, clearBulkSelection,
+    openBulkDialog, closeBulkDialog, applyBulkAction, retryBulkSave,
     trash,
     recycleBinEnabled,
     selectedIsTrash,
@@ -2310,6 +2611,9 @@ export function useVault() {
     touchUsage,
     selectEntry,
     selectGroup,
+    setSidebarView,
+    selectUsername,
+    credentialsOf,
     openCreateDrawer,
     clipboardCaptureEpoch,
     clipboardCaptureBlocked,

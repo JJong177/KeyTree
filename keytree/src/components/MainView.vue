@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { useVault } from "../composables/useVault";
 import { settings, type VaultMeta } from "../lib/settings";
 import { toast } from "../lib/toast";
 import GroupTree from "./GroupTree.vue";
+import UsernameList from "./UsernameList.vue";
 import EntryList from "./EntryList.vue";
 import EntryDetail from "./EntryDetail.vue";
 import EntryDrawer from "./EntryDrawer.vue";
+import BulkEntryDialog from "./BulkEntryDialog.vue";
 import SettingsModal from "./SettingsModal.vue";
 import QuickPanel from "./QuickPanel.vue";
 import SyncQuickBar from "./SyncQuickBar.vue";
@@ -17,7 +19,7 @@ import { createClipboardCapture, resolveClipboardRecord, type ClipboardChoices, 
 const settingsOpen = ref(false);
 const settingsInitialTab = ref<"security" | "sync">("security");
 function openSettings(tab: "security" | "sync" = "security") {
-  if (busy.value || drawer.value.open) return;
+  if (busy.value || drawer.value.open || bulkInteractionBlocked.value) return;
   settingsInitialTab.value = tab; settingsOpen.value = true;
 }
 const panelOpen = ref(false);
@@ -72,6 +74,7 @@ function onGlobalKeydown(event: KeyboardEvent) {
   // Do not open a second overlay over an unsaved editor/settings form.
   if (drawer.value.open || settingsOpen.value) return;
   if (clipboardRecognition.value) return;
+  if (bulkInteractionBlocked.value) return;
 
   // Ctrl+K 呼出快速面板（全局 Alt+Space 由 Rust 侧注册）
   if (mod && key === "k") {
@@ -100,6 +103,7 @@ function onGlobalKeydown(event: KeyboardEvent) {
     return;
   }
   if (mod && key === "e") {
+    if (selectionMode.value) { event.preventDefault(); return; }
     if (selectedEntry.value) {
       event.preventDefault();
       openEditDrawer(selectedEntry.value.uuid);
@@ -117,8 +121,14 @@ function onGlobalKeydown(event: KeyboardEvent) {
   }
 
   if (isEditable(event.target)) return;
+  if (event.key === "Escape" && selectionMode.value && !bulkDialog.value) {
+    event.preventDefault();
+    exitBulkSelection();
+    return;
+  }
 
   if (event.key === "Delete") {
+    if (selectionMode.value) { event.preventDefault(); return; }
     event.preventDefault();
     armDelete();
     return;
@@ -138,6 +148,7 @@ function onGlobalKeydown(event: KeyboardEvent) {
 }
 
 function onPanelEdit(uuid: string) {
+  if (bulkInteractionBlocked.value) return;
   openEditDrawer(uuid);
 }
 
@@ -158,16 +169,46 @@ const {
   busy,
   hasUnsavedChanges,
   clearError,
-  vaultInfo,
   vaultPath,
+  sidebarView,
+  setSidebarView,
+  selectionMode,
+  bulkDialog,
+  bulkInteractionBlocked,
+  exitBulkSelection,
 } = useVault();
 
+watch([bulkInteractionBlocked, selectionMode], () => {
+  deleteArmed.value = "";
+  if (deleteTimer) {
+    window.clearTimeout(deleteTimer);
+    deleteTimer = undefined;
+  }
+  if (bulkInteractionBlocked.value) panelOpen.value = false;
+}, { flush: "sync" });
+
 const { unlocked, clipboardCaptureEpoch, clipboardCaptureBlocked } = useVault();
+const groupsTabRef = ref<HTMLButtonElement | null>(null);
+const usernamesTabRef = ref<HTMLButtonElement | null>(null);
+
+async function onSidebarTabKeydown(event: KeyboardEvent): Promise<void> {
+  let target: "groups" | "usernames" | null = null;
+  if (event.key === "ArrowLeft") target = sidebarView.value === "groups" ? "usernames" : "groups";
+  else if (event.key === "ArrowRight") target = sidebarView.value === "groups" ? "usernames" : "groups";
+  else if (event.key === "Home") target = "groups";
+  else if (event.key === "End") target = "usernames";
+  if (!target) return;
+  event.preventDefault();
+  event.stopPropagation();
+  setSidebarView(target);
+  await nextTick();
+  (target === "groups" ? groupsTabRef : usernamesTabRef).value?.focus();
+}
 const clipboardRecognition = ref<Recognition | null>(null);
 const clipboardDraft = ref<Pick<ClipboardRecord, "title" | "username" | "password" | "url" | "notes"> | null>(null);
 function canCaptureClipboard(): boolean {
   return settings.clipboardRecognition && unlocked.value && !clipboardCaptureBlocked.value && !busy.value && !drawer.value.open
-    && !settingsOpen.value && !panelOpen.value && !clipboardRecognition.value
+    && !settingsOpen.value && !panelOpen.value && !bulkInteractionBlocked.value && !clipboardRecognition.value
     && !document.hidden && document.hasFocus();
 }
 const clipboardCapture = createClipboardCapture({
@@ -182,7 +223,7 @@ function clearClipboardRecognition(): void {
 function acceptClipboardRecord(index: number, choices: ClipboardChoices = {}): void {
   const record = clipboardRecognition.value?.records[index];
   if (!record || !settings.clipboardRecognition || !unlocked.value || clipboardCaptureBlocked.value || busy.value || drawer.value.open
-    || settingsOpen.value || panelOpen.value || document.hidden || !document.hasFocus()) return;
+    || settingsOpen.value || panelOpen.value || bulkInteractionBlocked.value || document.hidden || !document.hasFocus()) return;
   const resolved = resolveClipboardRecord(record, choices);
   if (!resolved) return;
   clearClipboardRecognition();
@@ -191,7 +232,7 @@ function acceptClipboardRecord(index: number, choices: ClipboardChoices = {}): v
 }
 function onClipboardFocus(): void { void clipboardCapture.focus(); }
 function onClipboardVisibility(): void { if (document.hidden) clearClipboardRecognition(); }
-watch([() => settings.clipboardRecognition, unlocked, clipboardCaptureEpoch, () => drawer.value.open, settingsOpen, panelOpen, busy], () => {
+watch([() => settings.clipboardRecognition, unlocked, clipboardCaptureEpoch, () => drawer.value.open, settingsOpen, panelOpen, busy, bulkInteractionBlocked], () => {
   clearClipboardRecognition();
   if (!drawer.value.open || !unlocked.value || !settings.clipboardRecognition) clipboardDraft.value = null;
 }, { flush: "sync" });
@@ -391,7 +432,7 @@ async function onSave() {
         <button
           class="flex h-9 w-9 items-center justify-center rounded-full border border-stone-300 bg-white text-stone-600 transition-colors duration-300 hover:bg-stone-100"
           title="设置"
-          @click="openSettings()" :disabled="busy || drawer.open"
+          @click="openSettings()" :disabled="busy || drawer.open || bulkInteractionBlocked"
         >
           <!-- lucide「settings」齿轮：圆孔 + 齿圈，跟日夜切换的太阳彻底区分 -->
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -403,14 +444,14 @@ async function onSave() {
         </button>
         <button
           class="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm text-stone-700 transition-colors duration-300 hover:bg-stone-100 disabled:opacity-50"
-          :disabled="busy"
+          :disabled="busy || bulkInteractionBlocked"
           @click="onSave"
         >
           保存
         </button>
         <button
           class="rounded-full bg-stone-800 px-4 py-2 text-sm font-medium text-stone-50 transition-colors duration-300 hover:bg-stone-700"
-          :disabled="busy" @click="openCreateDrawer"
+          :disabled="busy || bulkInteractionBlocked" @click="openCreateDrawer"
         >
           + 新建
         </button>
@@ -423,8 +464,6 @@ async function onSave() {
       </div>
     </header>
 
-    <SyncQuickBar :blocked="settingsOpen || panelOpen" @configure="openSettings('sync')" />
-
     <!-- 提示条 -->
     <div
       v-if="error"
@@ -436,7 +475,58 @@ async function onSave() {
 
     <!-- 三栏 -->
     <div class="grid min-h-0 flex-1 grid-cols-[200px_1fr_340px]">
-      <GroupTree class="min-h-0 overflow-hidden border-r border-stone-200 bg-white" />
+      <div class="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-stone-200 bg-white">
+        <div role="tablist" aria-label="侧栏视图" class="flex shrink-0 gap-1 px-3 pt-3" @keydown="onSidebarTabKeydown">
+          <button
+            ref="groupsTabRef"
+            id="sidebar-tab-groups"
+            type="button"
+            role="tab"
+            aria-controls="sidebar-panel-groups"
+            :aria-selected="sidebarView === 'groups'"
+            :tabindex="sidebarView === 'groups' ? 0 : -1"
+            class="flex-1 rounded-full px-2 py-1.5 text-xs font-medium transition-colors"
+            :class="sidebarView === 'groups' ? 'bg-[#8b9d77]/15 text-[#5c4033]' : 'text-stone-500 hover:bg-stone-100'"
+            @click="setSidebarView('groups')"
+          >
+            分组
+          </button>
+          <button
+            ref="usernamesTabRef"
+            id="sidebar-tab-usernames"
+            type="button"
+            role="tab"
+            aria-controls="sidebar-panel-usernames"
+            :aria-selected="sidebarView === 'usernames'"
+            :tabindex="sidebarView === 'usernames' ? 0 : -1"
+            class="flex-1 rounded-full px-2 py-1.5 text-xs font-medium transition-colors"
+            :class="sidebarView === 'usernames' ? 'bg-[#8b9d77]/15 text-[#5c4033]' : 'text-stone-500 hover:bg-stone-100'"
+            @click="setSidebarView('usernames')"
+          >
+            账号
+          </button>
+        </div>
+        <div
+          v-if="sidebarView === 'groups'"
+          id="sidebar-panel-groups"
+          role="tabpanel"
+          aria-labelledby="sidebar-tab-groups"
+          class="flex min-h-0 flex-1 flex-col"
+          tabindex="0"
+        >
+          <GroupTree class="min-h-0 flex-1 overflow-hidden" />
+        </div>
+        <div
+          v-else
+          id="sidebar-panel-usernames"
+          role="tabpanel"
+          aria-labelledby="sidebar-tab-usernames"
+          class="flex min-h-0 flex-1 flex-col"
+          tabindex="0"
+        >
+          <UsernameList class="min-h-0 flex-1 overflow-hidden" />
+        </div>
+      </div>
       <EntryList class="min-h-0 overflow-hidden" />
       <EntryDetail class="min-h-0 overflow-hidden border-l border-stone-200 bg-white" />
     </div>
@@ -445,7 +535,7 @@ async function onSave() {
     <footer
       class="flex shrink-0 items-center justify-between gap-3 border-t border-stone-200 bg-white px-4 py-1.5 text-xs text-stone-400"
     >
-      <span class="truncate">{{ hasUnsavedChanges ? "有未保存的修改 · 请保存或另存 KDBX 副本" : status || "本地优先 · 当前库修改已保存" }}</span>
+      <span class="min-w-0 flex-1 truncate">{{ hasUnsavedChanges ? "有未保存的修改 · 请保存或另存 KDBX 副本" : status || "本地优先 · 当前库修改已保存" }}</span>
       <span class="hidden shrink-0 items-center gap-3 md:flex">
         <span>
           <kbd class="rounded-full border border-stone-200 bg-[#faf6f1] px-1.5 py-0.5">Ctrl+F</kbd>
@@ -464,16 +554,17 @@ async function onSave() {
           快速面板
         </span>
       </span>
-      <span class="shrink-0">{{ vaultInfo.kdf }} · {{ vaultInfo.version }}</span>
+      <SyncQuickBar :blocked="settingsOpen || panelOpen || bulkInteractionBlocked" @configure="openSettings('sync')" />
     </footer>
 
-    <SettingsModal v-if="settingsOpen" :initial-tab="settingsInitialTab" @close="settingsOpen = false" />
-    <EntryDrawer v-if="drawer.open" :clipboard-draft="clipboardDraft" />
-    <ClipboardRecognition v-if="clipboardRecognition" :recognition="clipboardRecognition" @dismiss="clearClipboardRecognition" @accept="acceptClipboardRecord" />
+    <SettingsModal v-if="settingsOpen && !bulkInteractionBlocked" :initial-tab="settingsInitialTab" @close="settingsOpen = false" />
+    <EntryDrawer v-if="drawer.open && !bulkInteractionBlocked" :clipboard-draft="clipboardDraft" />
+    <ClipboardRecognition v-if="clipboardRecognition && !bulkInteractionBlocked" :recognition="clipboardRecognition" @dismiss="clearClipboardRecognition" @accept="acceptClipboardRecord" />
     <QuickPanel
-      v-if="panelOpen"
+      v-if="panelOpen && !bulkInteractionBlocked"
       @close="panelOpen = false"
       @edit="onPanelEdit"
     />
+    <BulkEntryDialog v-if="bulkDialog" />
   </div>
 </template>

@@ -17,6 +17,10 @@ import BackupSnapshots from "./BackupSnapshots.vue";
 import EncryptionSettings from "./EncryptionSettings.vue";
 import { clearQuickUnlockCache } from "../lib/quick-unlock";
 import AppSelect from "./AppSelect.vue";
+import AboutUpdates from "./AboutUpdates.vue";
+import { useUpdates } from "../lib/updates";
+
+const { hasUpdate } = useUpdates();
 
 const props = withDefaults(defineProps<{ initialTab?: "security" | "convenience" | "data" | "health" | "audit" | "sync" | "about" }>(), { initialTab: "security" });
 const emit = defineEmits<{ close: [] }>();
@@ -360,7 +364,7 @@ const clipboardOptions = [
         <button
           v-for="item in tabs"
           :key="item.key"
-          class="rounded-full px-4 py-1.5 text-sm transition-colors duration-300"
+          class="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm transition-colors duration-300"
           :class="
             tab === item.key
               ? 'bg-stone-800 text-stone-50'
@@ -369,6 +373,7 @@ const clipboardOptions = [
           @click="tab = item.key"
         >
           {{ item.label }}
+          <span v-if="item.key === 'about' && hasUpdate" data-update-badge role="img" aria-label="有新版本可用" class="h-1.5 w-1.5 rounded-full bg-[#8b9d77]" />
         </button>
       </div>
 
@@ -677,7 +682,7 @@ const clipboardOptions = [
             <span class="text-stone-500">加密</span>
             <span>{{ vaultInfo.kdf }} · {{ vaultInfo.version }}</span>
           </div>
-          <div class="font-medium text-stone-800">KeyTree</div>
+          <AboutUpdates />
           <p class="border-t border-stone-200 pt-3 text-xs text-stone-400">
             本地优先，可手动同步或启用锁定时同步。
           </p>

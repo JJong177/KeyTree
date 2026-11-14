@@ -30,7 +30,11 @@ const {
   refreshIcon,
   touchUsage,
   toggleFavorite,
+  selectionMode,
+  bulkInteractionBlocked,
 } = useVault();
+const detailMutationBlocked = computed(() => selectionMode.value || bulkInteractionBlocked.value || busy.value);
+
 
 const revealed = ref(false);
 const confirmDelete = ref(false);
@@ -77,7 +81,10 @@ const expiryUrgent = computed(() => (expiryDays.value ?? 0) <= 7);
 async function copyPassword() {
   const entry = selectedEntry.value;
   if (!entry) return;
-  if (await copyText(password.value)) { void touchUsage(entry.uuid); void recordAudit("copy-password", entry.uuid); }
+  if (await copyText(password.value)) {
+    if (!bulkInteractionBlocked.value) void touchUsage(entry.uuid);
+    void recordAudit("copy-password", entry.uuid);
+  }
 }
 async function copyUsername() {
   const entry = selectedEntry.value;
@@ -90,7 +97,7 @@ function toggleField(name: string) { revealedFields.value = revealedFields.value
 
 async function toggleFav() {
   const entry = selectedEntry.value;
-  if (!entry) return;
+  if (!entry || detailMutationBlocked.value) return;
   await toggleFavorite(entry.uuid);
   toast(selectedEntry.value?.favorite ? "已收藏" : "已取消收藏");
 }
@@ -107,7 +114,7 @@ async function openUrl() {
 
 async function doDelete() {
   const entry = selectedEntry.value;
-  if (!entry) return;
+  if (!entry || detailMutationBlocked.value) return;
   if (!confirmDelete.value) {
     confirmDelete.value = true;
     window.setTimeout(() => (confirmDelete.value = false), 4000);
@@ -119,7 +126,7 @@ async function doDelete() {
 
 async function doPurge() {
   const entry = selectedEntry.value;
-  if (!entry) return;
+  if (!entry || detailMutationBlocked.value) return;
   if (!confirmPurge.value) {
     confirmPurge.value = true;
     window.setTimeout(() => (confirmPurge.value = false), 4000);
@@ -130,11 +137,12 @@ async function doPurge() {
 }
 
 function editHistory(id: string, note: string) {
+  if (detailMutationBlocked.value) return;
   editingHistory.value = id; historyDraft.value = note; deletingHistory.value = ""; historyError.value = "";
 }
 async function historyAction(kind: "note" | "delete" | "restore" | "retry", id = "") {
   const entry = selectedEntry.value;
-  if (!entry || historyWorking.value || busy.value) return;
+  if (!entry || historyWorking.value || detailMutationBlocked.value) return;
   historyWorking.value = true;
   historyError.value = "";
   try {
@@ -169,7 +177,7 @@ function historyDate(at: Date | null) { return at ? at.toLocaleString("zh-CN", {
             v-if="host"
             class="absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-stone-300 bg-white text-[9px] leading-none text-stone-600 transition-colors duration-300 hover:bg-stone-100"
             title="重新抓取站点图标"
-            @click="refreshIcon(selectedEntry.uuid)"
+            :disabled="detailMutationBlocked" @click="refreshIcon(selectedEntry.uuid)"
           >
             ↻
           </button>
@@ -181,6 +189,7 @@ function historyDate(at: Date | null) { return at ? at.toLocaleString("zh-CN", {
               class="ml-1 inline-flex align-middle text-base transition-colors duration-300"
               :class="selectedEntry.favorite ? 'text-[#d4a373]' : 'text-stone-300 hover:text-[#d4a373]'"
               :title="selectedEntry.favorite ? '取消收藏' : '收藏'"
+              :disabled="detailMutationBlocked"
               @click="toggleFav"
             >
               ★
@@ -213,7 +222,7 @@ function historyDate(at: Date | null) { return at ? at.toLocaleString("zh-CN", {
       <!-- 字段 -->
       <div class="space-y-3">
         <div v-if="selectedEntry.username">
-          <div class="mb-1 text-xs text-stone-500">用户名</div>
+          <div class="mb-1 text-xs text-stone-500">账号</div>
           <div class="flex items-center gap-2">
             <div
               class="min-w-0 flex-1 truncate rounded-full border border-stone-200 bg-[#faf6f1] px-4 py-2 text-sm text-stone-800"
@@ -342,7 +351,7 @@ function historyDate(at: Date | null) { return at ? at.toLocaleString("zh-CN", {
           <p class="mt-2 text-[11px] text-stone-400">最多保留 20 条。备注随密码库加密保存，与当前条目备注独立。删除仅影响当前库，不会擦除旧副本。</p>
           <div v-if="historyPending" class="mt-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-900" role="status">
             历史改动已应用，但尚未写入磁盘。重试只保存，不会重复删除或恢复。
-            <button class="mt-2 rounded-full border border-amber-300 px-3 py-1 disabled:opacity-50" :disabled="historyWorking || busy" @click="historyAction('retry')">{{ historyWorking ? '保存中…' : '重试保存' }}</button>
+            <button class="mt-2 rounded-full border border-amber-300 px-3 py-1 disabled:opacity-50" :disabled="historyWorking || busy || detailMutationBlocked" @click="historyAction('retry')">{{ historyWorking ? '保存中…' : '重试保存' }}</button>
           </div>
           <p v-if="historyError" class="mt-2 text-xs text-[#8b2332]" role="alert">{{ historyError }}</p>
           <p v-if="!history.length" class="mt-3 text-xs text-stone-500">暂无历史版本</p>
@@ -350,16 +359,16 @@ function historyDate(at: Date | null) { return at ? at.toLocaleString("zh-CN", {
             <li v-for="h in history" :key="h.id" class="border-t border-stone-100 pt-2">
               <p class="break-words text-xs text-stone-600">{{ historyDate(h.at) }} · {{ h.username || h.title }}</p>
               <p v-if="h.note && editingHistory !== h.id" class="mt-1 whitespace-pre-wrap break-words text-xs text-stone-500">{{ h.note }}</p>
-              <fieldset v-if="editingHistory === h.id" class="mt-2 space-y-2" :disabled="historyWorking || busy || historyPending">
+              <fieldset v-if="editingHistory === h.id" class="mt-2 space-y-2" :disabled="historyWorking || busy || historyPending || detailMutationBlocked">
                 <textarea v-model="historyDraft" aria-label="历史版本备注" rows="3" class="w-full rounded-xl border border-stone-200 p-2 text-xs" placeholder="给这个版本写备注（最多 200 字）" />
                 <p class="text-[11px]" :class="historyNoteLength > 200 ? 'text-[#8b2332]' : 'text-stone-400'">{{ historyNoteLength }}/200</p>
                 <div class="flex flex-wrap gap-2 text-xs">
-                  <button class="rounded-full border px-3 py-1 disabled:opacity-50" :disabled="historyNoteLength > 200" @click="historyAction('note', h.id)">保存备注</button>
+                  <button class="rounded-full border px-3 py-1 disabled:opacity-50" :disabled="historyNoteLength > 200 || detailMutationBlocked" @click="historyAction('note', h.id)">保存备注</button>
                   <button class="rounded-full border px-3 py-1" @click="historyDraft = ''">清空</button>
                   <button class="px-2 py-1" @click="editingHistory = ''; historyDraft = ''">取消</button>
                 </div>
               </fieldset>
-              <fieldset v-else class="mt-2 flex flex-wrap gap-2 text-[11px]" :disabled="historyWorking || busy || historyPending">
+              <fieldset v-else class="mt-2 flex flex-wrap gap-2 text-[11px]" :disabled="historyWorking || busy || historyPending || detailMutationBlocked">
                 <button class="rounded-full border border-stone-300 px-3 py-1" @click="editHistory(h.id, h.note)">编辑备注</button>
                 <button class="rounded-full border border-stone-300 px-3 py-1" @click="historyAction('restore', h.id)">恢复</button>
                 <button class="rounded-full border border-stone-300 px-3 py-1 text-[#8b2332]" @click="deletingHistory = h.id">删除</button>
@@ -367,7 +376,7 @@ function historyDate(at: Date | null) { return at ? at.toLocaleString("zh-CN", {
               <div v-if="deletingHistory === h.id" class="mt-2 rounded-xl bg-red-50 p-2 text-xs text-[#8b2332]" role="alert">
                 确认删除这个历史版本？无法撤销。
                 <div class="mt-2 flex flex-wrap gap-2">
-                  <button class="rounded-full border border-red-200 px-3 py-1 disabled:opacity-50" :disabled="historyWorking || busy || historyPending" @click="historyAction('delete', h.id)">确认删除</button>
+                  <button class="rounded-full border border-red-200 px-3 py-1 disabled:opacity-50" :disabled="historyWorking || busy || historyPending || detailMutationBlocked" @click="historyAction('delete', h.id)">确认删除</button>
                   <button class="px-2 py-1" :disabled="historyWorking" @click="deletingHistory = ''">取消</button>
                 </div>
               </div>
@@ -393,6 +402,7 @@ function historyDate(at: Date | null) { return at ? at.toLocaleString("zh-CN", {
         </p>
         <button
           class="w-full rounded-full bg-stone-800 px-6 py-3 font-medium text-stone-50 transition-colors duration-300 hover:bg-stone-700"
+          :disabled="detailMutationBlocked"
           @click="restoreEntry(selectedEntry.uuid)"
         >
           恢复此条目
@@ -404,6 +414,7 @@ function historyDate(at: Date | null) { return at ? at.toLocaleString("zh-CN", {
               ? 'border-[#8b2332] bg-[#8b2332] text-white hover:bg-[#7a1d2b]'
               : 'border-stone-300 bg-white text-stone-600 hover:bg-stone-100'
           "
+          :disabled="detailMutationBlocked"
           @click="doPurge"
         >
           {{ confirmPurge ? "再点一次永久删除" : "彻底删除" }}
@@ -412,6 +423,7 @@ function historyDate(at: Date | null) { return at ? at.toLocaleString("zh-CN", {
       <template v-else>
         <button
           class="w-full rounded-full bg-stone-800 px-6 py-3 font-medium text-stone-50 transition-colors duration-300 hover:bg-stone-700"
+          :disabled="detailMutationBlocked"
           @click="openEditDrawer(selectedEntry.uuid)"
         >
           编辑此条目
@@ -423,6 +435,7 @@ function historyDate(at: Date | null) { return at ? at.toLocaleString("zh-CN", {
               ? 'border-[#8b2332] bg-[#8b2332] text-white hover:bg-[#7a1d2b]'
               : 'border-stone-300 bg-white text-stone-600 hover:bg-stone-100'
           "
+          :disabled="detailMutationBlocked"
           @click="doDelete"
         >
           {{ confirmDelete ? "再点一次确认删除" : "删除此条目" }}

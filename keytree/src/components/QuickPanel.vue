@@ -154,7 +154,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           ref="inputRef"
           v-model="query"
           class="flex-1 bg-transparent text-lg font-semibold text-stone-800 placeholder:font-normal placeholder:text-stone-400 focus:outline-none"
-          placeholder="搜索标题、用户名、网址、标签…"
+          placeholder="搜索标题、账号、网址、标签…"
           @input="activeIndex = 0; showActions = false"
         />
         <span class="shrink-0 rounded-full border border-stone-200 bg-white px-2 py-1 text-xs text-stone-500">
@@ -192,7 +192,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         </li>
 
         <li v-if="!results.length" class="px-4 py-10 text-center text-sm text-stone-400">
-          <EmptyState kind="search" title="没有找到匹配条目" description="试试标题、用户名、网址或标签中的关键词。" />
+          <EmptyState kind="search" title="没有找到匹配条目" description="试试标题、账号、网址或标签中的关键词。" />
         </li>
       </ul>
 
@@ -200,7 +200,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
       <div v-if="showActions && active" class="border-t border-stone-200 px-3 py-2">
         <div class="flex flex-wrap gap-2">
           <button class="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-100" @click="copyUsername">
-            复制用户名
+            复制账号
           </button>
           <button class="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-100" @click="copyPassword">
             复制密码

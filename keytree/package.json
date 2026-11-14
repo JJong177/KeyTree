@@ -18,7 +18,14 @@
     "test:encryption": "node scripts/test-encryption.mjs",
     "test:clipboard": "node scripts/test-clipboard-capture.mjs",
     "test:clipboard-browser": "node scripts/test-clipboard-browser.mjs",
-    "test": "node scripts/test-features.mjs && node scripts/test-master-password-hint.mjs && node scripts/test-vault-save.mjs && node scripts/test-settings.mjs && node scripts/test-encryption.mjs && node scripts/test-clipboard-capture.mjs && node scripts/test-groups.mjs && node scripts/test-lock-sync.mjs",
+    "test:entry-identity": "node scripts/test-entry-identity.mjs",
+    "test:site-title": "node scripts/test-site-title.mjs",
+    "test:entry-convenience-browser": "node scripts/test-entry-convenience-browser.mjs",
+    "test:usernames-browser": "node scripts/test-usernames-browser.mjs",
+    "test:bulk-entries-browser": "node scripts/test-bulk-entries-browser.mjs",
+    "test:updates": "node scripts/test-updates.mjs",
+    "test:updates-browser": "node scripts/test-updates-browser.mjs",
+    "test": "node scripts/test-features.mjs && node scripts/test-master-password-hint.mjs && node scripts/test-vault-save.mjs && node scripts/test-settings.mjs && node scripts/test-encryption.mjs && node scripts/test-clipboard-capture.mjs && node scripts/test-groups.mjs && node scripts/test-lock-sync.mjs && node scripts/test-entry-identity.mjs && node scripts/test-site-title.mjs && node scripts/test-updates.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

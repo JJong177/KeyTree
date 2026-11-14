@@ -11,6 +11,7 @@ import UnlockView from "./components/UnlockView.vue";
 import MainView from "./components/MainView.vue";
 import ToastHost from "./components/ToastHost.vue";
 import { installQuickUnlockPolicy } from "./lib/quick-unlock";
+import { useUpdates } from "./lib/updates";
 
 const { unlocked, flushSave, syncExternalChanges } = useVault();
 
@@ -50,6 +51,7 @@ function onFocus(): void {
 }
 
 onMounted(() => {
+  void useUpdates().check();
   window.addEventListener("blur", flushPending);
   window.addEventListener("focus", onFocus);
   document.addEventListener("visibilitychange", onVisibilityChange);

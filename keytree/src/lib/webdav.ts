@@ -32,7 +32,7 @@ export type WebdavPhase = "unchecked" | "saving" | "downloading" | "merging" | "
 export interface WebdavState { phase: WebdavPhase; message: string; lastSyncedAt: number | null }
 const messages: Record<string, string> = {
   WD_INVALID_URL: "请填写完整的 HTTPS WebDAV .kdbx 文件地址，不含查询参数或账号密码；不能使用网页分享链接。",
-  WD_CREDENTIALS_REQUIRED: "请填写用户名和应用专用密码；更换账号或服务地址需重新授权。",
+  WD_CREDENTIALS_REQUIRED: "请填写账号和应用专用密码；更换账号或服务地址需重新授权。",
   WD_NOT_CONFIGURED: "请先保存 WebDAV 配置。",
   WD_CONFIG_IO: "本机同步配置无法读取或保存，请检查权限后重试。",
   WD_AUTH: "WebDAV 授权失败，请检查账号和应用专用密码。",
